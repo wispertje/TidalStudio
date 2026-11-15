@@ -18,6 +18,7 @@ using TidalStudio.App.Explorer;
 using TidalStudio.App.Services;
 using TidalStudio.App.Visualizers;
 using TidalStudio.Core.Settings;
+using TidalStudio.Core.SuperCollider;
 using TidalStudio.Core.Tidal;
 
 namespace TidalStudio.App;
@@ -38,6 +39,11 @@ public partial class MainWindow : Window
     private readonly CompletionController _completion;
 
     private DocumentTab? _active;
+
+    private enum DirtState { Unknown, Running, Starting, NotRunning }
+    private DirtState _dirtState = DirtState.Unknown;
+    private DateTime _lastDirtProbe = DateTime.MinValue;
+    private bool _dirtHintShown;
     private int _untitledCounter;
     private bool _bootSupportsVisuals;
     private bool _closeConfirmed;
@@ -71,6 +77,7 @@ public partial class MainWindow : Window
         _services.Ghci.Output += line => _console.Add(line);
         _services.Ghci.StateChanged += _ => Dispatcher.UIThread.Post(UpdateStatus);
         _services.SuperDirt.Output += line => _console.Add(line with { Text = "[sc] " + line.Text });
+        _services.SuperDirt.Exited += () => Dispatcher.UIThread.Post(() => { if (_dirtState != DirtState.Starting) SetDirtState(DirtState.NotRunning); });
         _services.Osc.Error += msg => _console.Add(OutputKind.Error, msg);
         _services.Ghci.Output += line =>
         {
@@ -124,6 +131,8 @@ public partial class MainWindow : Window
         bool startTidal = selfTestDir is not null || _settings.StartTidalOnLaunch;
         if (startTidal && selfTestDir is null) ShowLoading();
         Task tidal = startTidal ? StartTidalAsync() : Task.CompletedTask;
+        // SuperDirt makes the sound; start it alongside Tidal if it isn't running (not in self-test: that runs silently).
+        if (selfTestDir is null) _ = EnsureSuperDirtAsync();
 
         try
         {
@@ -135,7 +144,8 @@ public partial class MainWindow : Window
             _console.Add(OutputKind.Error, $"Could not listen on UDP port {_settings.EditorOscPort}: {e.Message}. Visualizers will stay empty. (Is another TidalStudio running?)");
         }
 
-        if (_settings.CaptureAudio) StartAudio();
+        if (args.Contains("--test-signal")) _services.AudioCapture.StartTestSignal();
+        else if (_settings.CaptureAudio) StartAudio();
 
         if (selfTestDir is not null) _ = RunSelfTestAsync(selfTestDir);
         if (!startTidal) _console.Add(OutputKind.Info, "Tidal is not started. Use Tidal ▸ Start / restart Tidal.");
@@ -339,6 +349,9 @@ public partial class MainWindow : Window
         var last = doc.GetLineByNumber(lastLine + 1);
         int start = first.Offset;
         string raw = doc.GetText(start, last.EndOffset - start);
+
+        // Without SuperDirt nothing is heard, and nothing reports an error: check (cheaply) and start it if needed.
+        _ = EnsureSuperDirtAsync();
 
         if (!_services.Ghci.IsReady)
         {
@@ -944,6 +957,7 @@ public partial class MainWindow : Window
         WordWrapItem.IsChecked = _settings.WordWrap;
         AutocompleteItem.IsChecked = _settings.Autocomplete;
         AutoStartItem.IsChecked = _settings.StartTidalOnLaunch;
+        AutoDirtItem.IsChecked = _settings.AutoStartSuperDirt;
         ShowPanelItem.IsChecked = true;
         StyleBackgroundItem.IsChecked = _settings.HighlightStyle == HighlightStyle.Background;
         StyleOutlineItem.IsChecked = _settings.HighlightStyle == HighlightStyle.Outline;
@@ -954,7 +968,7 @@ public partial class MainWindow : Window
 
     private void AddVisualizer(string type)
     {
-        var config = new VisualizerConfig { Type = type, Height = type is "spiral" or "pitchwheel" ? 260 : 180 };
+        var config = new VisualizerConfig { Type = type, Height = VisualizerFactory.IsRound(type) ? 260 : 180 };
         _settings.Visualizers.Add(config);
         AddTile(config);
         SetPanelVisible(true);
@@ -1014,6 +1028,20 @@ public partial class MainWindow : Window
             StatusCycle.Text = $"cycle {Math.Floor(cycle),6:0} · {cycle - Math.Floor(cycle):0.00}   cps {cps:0.000} ({cps * 240:0.#} bpm)";
         }
         else StatusCycle.Text = "";
+        StatusDirt.Text = _dirtState switch
+        {
+            DirtState.Running => "SuperDirt: running",
+            DirtState.Starting => "SuperDirt: starting…",
+            DirtState.NotRunning => "SuperDirt: not running",
+            _ => "SuperDirt: ?",
+        };
+        StatusDirtDot.Fill = new SolidColorBrush(_dirtState switch
+        {
+            DirtState.Running => Color.Parse("#4ECDC4"),
+            DirtState.Starting => Color.Parse("#60A5FA"),
+            DirtState.NotRunning => Color.Parse("#FF5370"),
+            _ => Color.Parse("#8A93A6"),
+        });
         StatusMuted.Text = _muted.Count > 0 ? "muted: " + string.Join(", ", _muted.OrderBy(m => m).Select(m => "d" + m)) : "";
         StatusEvents.Text = $"{Interlocked.Read(ref _services.Osc.PacketsReceived)} events";
         StatusAudio.Text = "audio: " + _services.AudioCapture.Description;
@@ -1140,24 +1168,120 @@ public partial class MainWindow : Window
 
     private async void OnStartSuperDirt(object? sender, RoutedEventArgs e)
     {
+        if (await SuperDirtProbe.IsRunningAsync())
+        {
+            SetDirtState(DirtState.Running);
+            SetMessage("SuperDirt is already running.");
+            return;
+        }
+        await StartSuperDirtAsync(interactive: true);
+    }
+
+    private void OnToggleAutoDirt(object? sender, RoutedEventArgs e)
+    {
+        _settings.AutoStartSuperDirt = !_settings.AutoStartSuperDirt;
+        AutoDirtItem.IsChecked = _settings.AutoStartSuperDirt;
+        if (_settings.AutoStartSuperDirt) _ = EnsureSuperDirtAsync();
+    }
+
+    // ------------------------------------------------------------------ SuperDirt
+
+    private void SetDirtState(DirtState state)
+    {
+        _dirtState = state;
+        UpdateStatus();
+    }
+
+    /// <summary>
+    /// Makes sure SuperDirt is running: asks it (handshake) and starts SuperCollider when nobody answers.
+    /// Cheap enough to call on every run: a running SuperDirt is re-checked at most every 10 seconds.
+    /// </summary>
+    private async Task EnsureSuperDirtAsync()
+    {
+        if (_dirtState == DirtState.Starting) return;
+        if (_dirtState == DirtState.Running && DateTime.UtcNow - _lastDirtProbe < TimeSpan.FromSeconds(10)) return;
+        _lastDirtProbe = DateTime.UtcNow;
+
+        if (await SuperDirtProbe.IsRunningAsync())
+        {
+            SetDirtState(DirtState.Running);
+            return;
+        }
+        if (_dirtState == DirtState.Starting) return; // started meanwhile
+        SetDirtState(DirtState.NotRunning);
+
+        if (_settings.AutoStartSuperDirt) await StartSuperDirtAsync(interactive: false);
+        else if (!_dirtHintShown)
+        {
+            _dirtHintShown = true;
+            _console.Add(OutputKind.Error, "SuperDirt is not running, so nothing will be heard. Start it with SuperCollider ▸ Start SuperDirt.");
+            SetMessage("SuperDirt is not running — nothing will be heard.");
+        }
+    }
+
+    /// <summary>Starts sclang + SuperDirt and waits until SuperDirt answers.</summary>
+    private async Task StartSuperDirtAsync(bool interactive)
+    {
+        if (_dirtState == DirtState.Starting) return;
         string? sclang = ToolLocator.FindSclang(_settings.SclangPath);
         if (sclang is null)
         {
-            await Dialogs.ShowMessage(this, "sclang not found", "Could not find SuperCollider's sclang. Use SuperCollider ▸ Choose sclang….");
+            const string message = "Could not find SuperCollider's sclang, so SuperDirt can't be started. Install SuperCollider, or use SuperCollider ▸ Choose sclang….";
+            if (interactive) await Dialogs.ShowMessage(this, "sclang not found", message);
+            else if (!_dirtHintShown) { _dirtHintShown = true; _console.Add(OutputKind.Error, message); }
             return;
         }
-        if (Process.GetProcessesByName("scsynth").Length > 0 &&
-            !await Dialogs.Confirm(this, "SuperCollider is already running",
-                "A SuperCollider server (scsynth) is already running, probably with SuperDirt started from the SuperCollider IDE. Starting another may fail because port 57120 is taken.\n\nStart anyway?", "Start anyway"))
-            return;
-        try
+
+        if (!_services.SuperDirt.IsRunning)
         {
-            _services.SuperDirt.Start(sclang, _settings.SuperDirtScript);
+            // Another SuperCollider (e.g. the IDE) without SuperDirt: a second sclang would fight it for port 57120.
+            if (Process.GetProcessesByName("sclang").Length > 0)
+            {
+                const string message = "SuperCollider is already running, but SuperDirt isn't answering. Start SuperDirt there (e.g. run your startup file), or close SuperCollider and TidalStudio will start it for you.";
+                if (!interactive)
+                {
+                    if (!_dirtHintShown) { _dirtHintShown = true; _console.Add(OutputKind.Error, message); }
+                    SetMessage("SuperDirt is not running — nothing will be heard.");
+                    return;
+                }
+                if (!await Dialogs.Confirm(this, "SuperCollider is already running", message + "\n\nStart another one anyway?", "Start anyway")) return;
+            }
+            try
+            {
+                _services.SuperDirt.Start(sclang, _settings.SuperDirtScript);
+            }
+            catch (Exception ex)
+            {
+                _console.Add(OutputKind.Error, $"Could not start sclang: {ex.Message}");
+                SetDirtState(DirtState.NotRunning);
+                return;
+            }
         }
-        catch (Exception ex)
+
+        SetDirtState(DirtState.Starting);
+        _console.Add(OutputKind.Info, "Starting SuperCollider and SuperDirt — loading samples can take a little while…");
+        SetMessage("Starting SuperDirt…");
+
+        // Wait until SuperDirt answers (server boot + loading samples), or sclang gives up.
+        var watch = Stopwatch.StartNew();
+        while (watch.Elapsed < TimeSpan.FromMinutes(2))
         {
-            _console.Add(OutputKind.Error, $"Could not start sclang: {ex.Message}");
+            await Task.Delay(1000);
+            if (!_services.SuperDirt.IsRunning) break;
+            if (await SuperDirtProbe.IsRunningAsync())
+            {
+                _lastDirtProbe = DateTime.UtcNow;
+                _dirtHintShown = false;
+                SetDirtState(DirtState.Running);
+                _console.Add(OutputKind.Info, $"SuperDirt is ready ({watch.Elapsed.TotalSeconds:0} s).");
+                SetMessage("SuperDirt is ready.");
+                return;
+            }
         }
+        SetDirtState(DirtState.NotRunning);
+        _console.Add(OutputKind.Error, _services.SuperDirt.IsRunning
+            ? "SuperDirt did not answer within 2 minutes. Check the [sc] lines above for errors."
+            : "SuperCollider stopped before SuperDirt was ready. Check the [sc] lines above for errors.");
     }
 
     private async void OnStopSuperDirt(object? sender, RoutedEventArgs e) => await _services.SuperDirt.StopAsync();
@@ -1290,7 +1414,8 @@ public partial class MainWindow : Window
 
         Inline visuals (like Strudel's _pianoroll())
           Put a comment in a block:   -- _punchcard   -- _pianoroll   -- _spiral   -- _pitchwheel
-                                      -- _scope   -- _spectrum   -- _cycle
+                                      -- _scope   -- _spectrum   -- _cycle   -- _rings   -- _params
+                                      -- _channels   -- _stereo   -- _spectrogram   -- _meter
           Options after it:  -- _pianoroll cycles=2 height=120 rows=pitch playhead=0.5
 
         Visualizer panel

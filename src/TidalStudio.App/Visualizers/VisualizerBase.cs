@@ -170,4 +170,34 @@ public abstract class VisualizerBase : Control
     }
 
     protected static Pen Pen(Color c, double thickness) => new(Brush(c), thickness);
+
+    /// <summary>A numeric control of an event (OSC name, e.g. "cutoff" for lpf), or null when the event has none.</summary>
+    protected static double? Param(TidalEvent e, string key) => key switch
+    {
+        "gain" => e.Gain,
+        "pan" => e.Pan,
+        "n" => e.N,
+        "note" => e.Note ?? e.N,
+        _ => e.Params.TryGetValue(key, out var v) ? v switch
+        {
+            float f => f,
+            double d => d,
+            int i => i,
+            long l => l,
+            string s when double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) => d,
+            _ => null,
+        } : null,
+    };
+
+    /// <summary>Sort key for pattern ids: d1, d2, … first in number order, then named patterns.</summary>
+    protected static (int, string) PatternOrder(string id) => (int.TryParse(id, out int n) ? n : 1000, id);
+
+    /// <summary>"d1" for numbered patterns, the name for named ones.</summary>
+    protected static string PatternName(string id) => int.TryParse(id, out _) ? "d" + id : id;
+
+    protected void DrawWaiting(DrawingContext dc, Rect bounds, double now)
+    {
+        if (!Services.Clock.HasReference) DrawIdleHint(dc, bounds, "Waiting for Tidal events…");
+        else if (!Services.Clock.IsPlaying(now)) DrawIdleHint(dc, bounds, "stopped");
+    }
 }

@@ -24,7 +24,45 @@ public sealed class AudioCapture : IDisposable
         _buffer = buffer;
     }
 
-    public bool IsRunning => _capture is not null;
+    public bool IsRunning => _capture is not null || _testSignal is not null;
+
+    private CancellationTokenSource? _testSignal;
+
+    /// <summary>
+    /// Development aid (TidalStudio.exe --test-signal): writes a synthetic signal into the analysis buffer instead of
+    /// capturing — a kick and hats at 120 bpm plus a rising tone. Nothing is played.
+    /// </summary>
+    public void StartTestSignal()
+    {
+        Stop();
+        var cts = new CancellationTokenSource();
+        _testSignal = cts;
+        Description = "test signal";
+        int rate = _buffer.SampleRate = 48000;
+        _ = Task.Run(async () =>
+        {
+            var block = new float[rate / 100]; // 10 ms
+            long n = 0;
+            var random = new Random(1);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (!cts.IsCancellationRequested)
+            {
+                for (int i = 0; i < block.Length; i++, n++)
+                {
+                    double t = n / (double)rate;
+                    double beat = t * 2 % 1;          // 120 bpm
+                    double eighth = t * 4 % 1;
+                    double kick = Math.Sin(2 * Math.PI * (50 + 120 * Math.Exp(-beat * 30)) * beat) * Math.Exp(-beat * 9);
+                    double hat = (random.NextDouble() * 2 - 1) * Math.Exp(-eighth * 60) * 0.25;
+                    double sweep = Math.Sin(2 * Math.PI * 200 * Math.Pow(2, t % 4) * t) * 0.15;
+                    block[i] = (float)(kick * 0.8 + hat + sweep);
+                }
+                _buffer.Write(block);
+                double ahead = n / (double)rate - clock.Elapsed.TotalSeconds;
+                if (ahead > 0) await Task.Delay(TimeSpan.FromSeconds(ahead));
+            }
+        });
+    }
     public string? Error { get; private set; }
     public string Description { get; private set; } = "off";
 
@@ -55,6 +93,8 @@ public sealed class AudioCapture : IDisposable
 
     public void Stop()
     {
+        _testSignal?.Cancel();
+        _testSignal = null;
         var capture = _capture;
         _capture = null;
         if (capture is null) return;

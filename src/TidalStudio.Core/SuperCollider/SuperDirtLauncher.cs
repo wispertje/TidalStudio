@@ -37,11 +37,29 @@ public sealed class SuperDirtLauncher : IAsyncDisposable
         )
         """;
 
+    /// <summary>True when a SuperCollider script creates and starts SuperDirt itself (ignoring // comment lines).</summary>
+    public static bool StartsSuperDirt(string script)
+    {
+        var code = string.Join('\n', script.Replace("\r\n", "\n").Split('\n')
+            .Select(l => l.TrimStart()).Where(l => !l.StartsWith("//", StringComparison.Ordinal)));
+        return code.Contains("SuperDirt(", StringComparison.Ordinal) && code.Contains(".start(", StringComparison.Ordinal);
+    }
+
     public void Start(string sclangPath, string? script = null)
     {
         if (IsRunning) return;
-        string scriptPath = Path.Combine(Path.GetTempPath(), "TidalStudio-superdirt.scd");
-        File.WriteAllText(scriptPath, string.IsNullOrWhiteSpace(script) ? DefaultStartupScript : script, new UTF8Encoding(false));
+
+        // sclang always runs the user's startup.scd first. If that already starts SuperDirt (with the user's own
+        // sample folders), running our script as well would reboot the server and start a second SuperDirt with
+        // only the default samples. So let the startup file do the work.
+        string? startup = Completion.SampleLibrary.StartupScriptPath();
+        bool useStartupFile = string.IsNullOrWhiteSpace(script) && startup is not null && StartsSuperDirt(SafeRead(startup));
+        string? scriptPath = null;
+        if (!useStartupFile)
+        {
+            scriptPath = Path.Combine(Path.GetTempPath(), "TidalStudio-superdirt.scd");
+            File.WriteAllText(scriptPath, string.IsNullOrWhiteSpace(script) ? DefaultStartupScript : script, new UTF8Encoding(false));
+        }
 
         var psi = new ProcessStartInfo(sclangPath)
         {
@@ -54,7 +72,12 @@ public sealed class SuperDirtLauncher : IAsyncDisposable
             StandardOutputEncoding = new UTF8Encoding(false),
             StandardErrorEncoding = new UTF8Encoding(false),
         };
-        psi.ArgumentList.Add(scriptPath);
+        if (scriptPath is not null) psi.ArgumentList.Add(scriptPath);
+        // sclang boots the server through the shell by bare name ("scsynth.exe"). Started as a child process that
+        // name is not found ("'scsynth.exe' is not recognized") and the server exits with code 1, so put
+        // SuperCollider's folder on PATH.
+        if (Path.GetDirectoryName(sclangPath) is { Length: > 0 } scDir)
+            psi.Environment["PATH"] = scDir + Path.PathSeparator + ToolLocator.FreshPath();
 
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) => { if (e.Data is not null) Output?.Invoke(new OutputLine(OutputKind.Output, e.Data)); };
@@ -69,6 +92,14 @@ public sealed class SuperDirtLauncher : IAsyncDisposable
         process.BeginErrorReadLine();
         _process = process;
         Output?.Invoke(new OutputLine(OutputKind.Info, $"Started {sclangPath}"));
+        if (useStartupFile)
+            Output?.Invoke(new OutputLine(OutputKind.Info, $"Your SuperCollider startup file starts SuperDirt, so it is used as is: {startup}"));
+    }
+
+    private static string SafeRead(string path)
+    {
+        try { return File.ReadAllText(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
     }
 
     public async Task StopAsync()

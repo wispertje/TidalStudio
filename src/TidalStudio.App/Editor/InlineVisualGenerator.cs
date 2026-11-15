@@ -27,7 +27,7 @@ public sealed partial class InlineVisualGenerator : VisualLineElementGenerator
 
     public bool Enabled { get; set; } = true;
 
-    [GeneratedRegex(@"\G--\s*_(punchcard|pianoroll|spiral|pitchwheel|scope|tscope|spectrum|cycle)\b((?:\s+[A-Za-z]+=[^\s]+)*)")]
+    [GeneratedRegex(@"\G--\s*_(punchcard|pianoroll|spiral|pitchwheel|scope|tscope|spectrum|cycle|rings|params|channels|stereo|spectrogram|meter)\b((?:\s+[A-Za-z]+=[^\s]+)*)")]
     private static partial Regex Directive();
 
     /// <summary>Matches a directive only when it starts the line's comment (so prose in comments is ignored).</summary>
@@ -99,7 +99,7 @@ public sealed class InlineVisualHost : Border
         _line = line;
 
         var options = new Dictionary<string, string>();
-        double height = type is "spiral" or "pitchwheel" ? 140 : 90;
+        double height = VisualizerFactory.IsRound(type) ? 140 : 90;
         double width = 360;
         foreach (var pair in optionText.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {

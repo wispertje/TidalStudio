@@ -25,6 +25,8 @@ public sealed class AppSettings
     public string? SuperDirtScript { get; set; }
     public int EditorOscPort { get; set; } = 57130;
     public bool StartTidalOnLaunch { get; set; } = true;
+    /// <summary>Start SuperCollider + SuperDirt when they are not running (at launch and when code is run).</summary>
+    public bool AutoStartSuperDirt { get; set; } = true;
 
     // Editor
     public double FontSize { get; set; } = 15;

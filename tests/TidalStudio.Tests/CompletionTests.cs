@@ -110,6 +110,47 @@ public class CompletionTests
     }
 
     [Fact]
+    public void Startup_script_sound_folders_are_found_like_superdirt_does()
+    {
+        // Same layout as tidal-drum-machines: machines/<Machine>/<sound>/*.wav
+        string root = Path.Combine(Path.GetTempPath(), "ts-machines-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "machines", "RolandTR909", "rolandtr909-bd"));
+        Directory.CreateDirectory(Path.Combine(root, "machines", "RolandTR909", "rolandtr909-hh"));
+        Directory.CreateDirectory(Path.Combine(root, "machines", "Linn", "linn-sd"));
+        Directory.CreateDirectory(Path.Combine(root, "other", "commented"));
+        foreach (var d in Directory.GetDirectories(root, "*", SearchOption.AllDirectories))
+            File.WriteAllText(Path.Combine(d, "x.wav"), "");
+        try
+        {
+            string unix = root.Replace('\\', '/');
+            string script = $$"""
+                ~dirt.loadSoundFiles;  // defaults
+                ~dirt.loadSoundFiles("{{unix}}/machines/*/*");  // drum machines
+                // ~dirt.loadSoundFiles("{{unix}}/other/*");
+                """;
+            var folders = SoundFoldersFromScript(script).Select(Path.GetFileName).OrderBy(n => n).ToList();
+            Assert.Equal(new[] { "linn-sd", "rolandtr909-bd", "rolandtr909-hh" }, folders);
+
+            var entries = SampleLibrary.Scan(Array.Empty<string>(), SoundFoldersFromScript(script));
+            Assert.Contains(entries, e => e.Name == "rolandtr909-bd" && e.Count == 1);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        static List<string> SoundFoldersFromScript(string s) => SampleLibrary.SoundFoldersFromScript(s);
+    }
+
+    [Fact]
+    public void Startup_script_that_starts_superdirt_is_recognised()
+    {
+        Assert.True(TidalStudio.Core.SuperCollider.SuperDirtLauncher.StartsSuperDirt("~dirt = SuperDirt(2, s);\n~dirt.start(57120, 0 ! 12);"));
+        Assert.False(TidalStudio.Core.SuperCollider.SuperDirtLauncher.StartsSuperDirt("// ~dirt = SuperDirt(2, s);\n// ~dirt.start(57120);"));
+        Assert.False(TidalStudio.Core.SuperCollider.SuperDirtLauncher.StartsSuperDirt("s.boot;"));
+    }
+
+    [Fact]
     public void Sample_scan_counts_audio_files_and_adds_synths()
     {
         string root = Path.Combine(Path.GetTempPath(), "ts-samples-" + Guid.NewGuid().ToString("N"));
