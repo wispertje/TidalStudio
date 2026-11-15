@@ -1,0 +1,129 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace TidalStudio.Core.Settings;
+
+public enum HighlightStyle { Background, Outline, Underline }
+
+/// <summary>One visualizer tile in the side panel.</summary>
+public sealed class VisualizerConfig
+{
+    public string Type { get; set; } = "";
+    /// <summary>Also draw this visualizer behind the code (like Strudel's non-inline visuals).</summary>
+    public bool BehindCode { get; set; }
+    public double Height { get; set; } = 180;
+    public Dictionary<string, string> Options { get; set; } = new();
+}
+
+public sealed class AppSettings
+{
+    // Tidal / tools
+    public string? GhciPath { get; set; }
+    public string? BootFilePath { get; set; }
+    public bool UseBuiltInBootFile { get; set; }
+    public string? SclangPath { get; set; }
+    public string? SuperDirtScript { get; set; }
+    public int EditorOscPort { get; set; } = 57130;
+    public bool StartTidalOnLaunch { get; set; } = true;
+
+    // Editor
+    public double FontSize { get; set; } = 15;
+    public string FontFamily { get; set; } = "Cascadia Mono, Consolas, Menlo, monospace";
+    public bool ShowLineNumbers { get; set; } = true;
+    public bool WordWrap { get; set; }
+
+    // Mini-notation highlighting
+    public bool HighlightMiniNotation { get; set; } = true;
+    public HighlightStyle HighlightStyle { get; set; } = HighlightStyle.Background;
+    /// <summary>Colour per pattern (d1..d16); index 0 is d1.</summary>
+    public List<string> PatternColors { get; set; } = new(DefaultPalette);
+    public double HighlightOpacity { get; set; } = 0.45;
+
+    // Visualizers
+    public List<VisualizerConfig> Visualizers { get; set; } = new();
+    public bool CaptureAudio { get; set; } = true;
+    public double VisualizerPanelWidth { get; set; } = 380;
+
+    // Window / files
+    public double WindowWidth { get; set; } = 1400;
+    public double WindowHeight { get; set; } = 900;
+    public bool WindowMaximized { get; set; }
+    public double ConsoleHeight { get; set; } = 170;
+    public string? LastFile { get; set; }
+    public List<string> RecentFiles { get; set; } = new();
+
+    public static readonly string[] DefaultPalette =
+    {
+        "#FF6B6B", "#4ECDC4", "#FFD166", "#A78BFA", "#60A5FA", "#F472B6", "#34D399", "#FB923C",
+        "#C084FC", "#22D3EE", "#FACC15", "#F87171", "#2DD4BF", "#818CF8", "#E879F9", "#A3E635",
+    };
+
+    public static List<VisualizerConfig> DefaultVisualizers() => new()
+    {
+        new() { Type = "cycle", Height = 150 },
+        new() { Type = "punchcard", Height = 200 },
+        new() { Type = "pianoroll", Height = 200 },
+        new() { Type = "spiral", Height = 260 },
+        new() { Type = "pitchwheel", Height = 260 },
+        new() { Type = "scope", Height = 140 },
+        new() { Type = "spectrum", Height = 160 },
+    };
+
+    // ---------------- persistence ----------------
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
+
+    public static string DefaultDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TidalStudio");
+
+    public static string DefaultPath => Path.Combine(DefaultDirectory, "settings.json");
+
+    public static AppSettings Load(string? path = null)
+    {
+        path ??= DefaultPath;
+        AppSettings settings;
+        try
+        {
+            settings = File.Exists(path)
+                ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions) ?? new AppSettings()
+                : new AppSettings();
+        }
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+        {
+            settings = new AppSettings();
+        }
+        if (settings.Visualizers.Count == 0 && !File.Exists(path)) settings.Visualizers = DefaultVisualizers();
+        while (settings.PatternColors.Count < DefaultPalette.Length) settings.PatternColors.Add(DefaultPalette[settings.PatternColors.Count]);
+        return settings;
+    }
+
+    public void Save(string? path = null)
+    {
+        path ??= DefaultPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string tmp = path + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(this, JsonOptions));
+        File.Move(tmp, path, overwrite: true);
+    }
+
+    public void AddRecent(string file)
+    {
+        RecentFiles.RemoveAll(f => string.Equals(f, file, StringComparison.OrdinalIgnoreCase));
+        RecentFiles.Insert(0, file);
+        if (RecentFiles.Count > 10) RecentFiles.RemoveRange(10, RecentFiles.Count - 10);
+    }
+
+    public string PatternColor(string patternId)
+    {
+        if (int.TryParse(patternId, out int n) && n >= 1)
+            return PatternColors[(n - 1) % PatternColors.Count];
+        // Named patterns (p "drums"): stable colour from the name.
+        int hash = 0;
+        foreach (char c in patternId) hash = hash * 31 + c;
+        return PatternColors[Math.Abs(hash % PatternColors.Count)];
+    }
+}

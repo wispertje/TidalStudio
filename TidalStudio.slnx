@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TidalStudio.App/TidalStudio.App.csproj" />
+    <Project Path="src/TidalStudio.Core/TidalStudio.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TidalStudio.Tests/TidalStudio.Tests.csproj" />
+  </Folder>
+</Solution>
