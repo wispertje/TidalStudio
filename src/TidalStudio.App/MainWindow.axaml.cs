@@ -14,6 +14,7 @@ using AvaloniaEdit.Highlighting;
 using AvaloniaEdit.Highlighting.Xshd;
 using AvaloniaEdit.Rendering;
 using TidalStudio.App.Editor;
+using TidalStudio.App.Explorer;
 using TidalStudio.App.Services;
 using TidalStudio.App.Visualizers;
 using TidalStudio.Core.Settings;
@@ -32,15 +33,20 @@ public partial class MainWindow : Window
     private readonly InlineVisualGenerator _inlineGenerator;
     private readonly HashSet<string> _muted = new();
     private readonly List<VisualizerTile> _tiles = new();
+    private readonly List<DocumentTab> _tabs = new();
+    private readonly CompletionCatalog _completionCatalog;
+    private readonly CompletionController _completion;
 
-    private string? _currentPath;
-    private bool _dirty;
+    private DocumentTab? _active;
+    private int _untitledCounter;
     private bool _bootSupportsVisuals;
     private bool _closeConfirmed;
     private string? _bootDescription;
     private int _frame;
     private int _runCount;
     private string _lastRunLines = "";
+    private Stopwatch? _loadingWatch;
+    private volatile bool _tidalPrinted;
 
     // Parameterless constructor for the XAML previewer.
     public MainWindow() : this(new AppServices(), Array.Empty<string>()) { }
@@ -54,6 +60,8 @@ public partial class MainWindow : Window
         _console = new ConsoleController(ConsoleView);
         _miniRenderer = new MiniNotationRenderer(services, () => Editor.Document);
         _inlineGenerator = new InlineVisualGenerator(services);
+        _completionCatalog = new CompletionCatalog(services);
+        _completion = new CompletionController(Editor, _completionCatalog) { Enabled = _settings.Autocomplete };
 
         SetupEditor();
         SetupMenus();
@@ -64,6 +72,21 @@ public partial class MainWindow : Window
         _services.Ghci.StateChanged += _ => Dispatcher.UIThread.Post(UpdateStatus);
         _services.SuperDirt.Output += line => _console.Add(line with { Text = "[sc] " + line.Text });
         _services.Osc.Error += msg => _console.Add(OutputKind.Error, msg);
+        _services.Ghci.Output += line =>
+        {
+            if (line.Kind == OutputKind.Output && line.Text.Contains("TidalCycles version", StringComparison.Ordinal)) _tidalPrinted = true;
+        };
+
+        Explorer.FileOpenRequested += OnExplorerOpen;
+        Explorer.WorkingDirectoryRequested += dir => _ = SetWorkingDirectoryAsync(dir);
+        Explorer.NewFileRequested += OnExplorerNewFile;
+        Explorer.ChooseFolderRequested += () => _ = ChooseWorkingDirectoryAsync();
+
+        Tabs.Activated += ActivateTab;
+        Tabs.CloseRequested += tab => _ = CloseTabAsync(tab);
+        Tabs.CloseOthersRequested += tab => _ = CloseTabsAsync(_tabs.Where(t => t != tab).ToList());
+        Tabs.CloseAllRequested += () => _ = CloseTabsAsync(_tabs.ToList());
+        Tabs.NewRequested += () => NewDocument(withSample: false);
 
         Opened += async (_, _) => await OnOpenedAsync(args);
         Closing += OnClosing;
@@ -77,6 +100,31 @@ public partial class MainWindow : Window
         _services.Ticker.Attach(this);
         _services.Ticker.Subscribe(OnFrame);
 
+        int selfTest = Array.IndexOf(args, "--selftest");
+        string? selfTestDir = selfTest >= 0 && selfTest + 1 < args.Length ? args[selfTest + 1] : null;
+
+        string? argFile = args.FirstOrDefault(File.Exists);
+        string? lastFile = selfTestDir is null && _settings.LastFile is { } last && File.Exists(last) ? last : null;
+        string? file = argFile ?? lastFile;
+        string workDir = _settings.WorkingDirectory is { } wd && Directory.Exists(wd) ? wd
+            : file is not null ? Path.GetDirectoryName(Path.GetFullPath(file))!
+            : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        await SetWorkingDirectoryAsync(workDir, announce: false);
+
+        // Reopen last session's tabs (not in self-test mode), then the file from the command line.
+        if (selfTestDir is null)
+            foreach (var open in _settings.OpenFiles.Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
+                OpenFile(open, activate: false);
+        if (file is not null) OpenFile(file);
+        else if (_tabs.Count > 0) ActivateTab(_tabs[0]);
+        else NewDocument(withSample: true);
+
+        // Start ghci before anything else: it is by far the slowest part of starting up (GHC alone needs ~5 s on
+        // Windows before it reads any input), so everything below runs while it loads.
+        bool startTidal = selfTestDir is not null || _settings.StartTidalOnLaunch;
+        if (startTidal && selfTestDir is null) ShowLoading();
+        Task tidal = startTidal ? StartTidalAsync() : Task.CompletedTask;
+
         try
         {
             _services.Osc.Start(_settings.EditorOscPort);
@@ -89,23 +137,45 @@ public partial class MainWindow : Window
 
         if (_settings.CaptureAudio) StartAudio();
 
-        int selfTest = Array.IndexOf(args, "--selftest");
-        string? selfTestDir = selfTest >= 0 && selfTest + 1 < args.Length ? args[selfTest + 1] : null;
-
-        string? file = args.FirstOrDefault(File.Exists) ?? (selfTestDir is null && _settings.LastFile is { } last && File.Exists(last) ? last : null);
-        if (file is not null) LoadFile(file);
-        else NewDocument(withSample: true);
-
-        if (selfTestDir is not null)
-        {
-            _ = RunSelfTestAsync(selfTestDir);
-            await StartTidalAsync();
-            return;
-        }
-
-        if (_settings.StartTidalOnLaunch) await StartTidalAsync();
-        else _console.Add(OutputKind.Info, "Tidal is not started. Use Tidal ▸ Start / restart Tidal.");
+        if (selfTestDir is not null) _ = RunSelfTestAsync(selfTestDir);
+        if (!startTidal) _console.Add(OutputKind.Info, "Tidal is not started. Use Tidal ▸ Start / restart Tidal.");
+        await tidal;
+        HideLoading();
     }
+
+    // ------------------------------------------------------------------ loading screen
+
+    private void ShowLoading()
+    {
+        _tidalPrinted = false;
+        _loadingWatch = Stopwatch.StartNew();
+        LoadingOverlay.Opacity = 1;
+        LoadingOverlay.IsVisible = true;
+        UpdateLoading();
+    }
+
+    private async void HideLoading()
+    {
+        if (_loadingWatch is null) return;
+        _loadingWatch = null;
+        LoadingOverlay.Opacity = 0;
+        await Task.Delay(260);
+        if (_loadingWatch is null) LoadingOverlay.IsVisible = false;
+        Editor.Focus();
+    }
+
+    private void UpdateLoading()
+    {
+        if (_loadingWatch is null) return;
+        double t = _loadingWatch.Elapsed.TotalSeconds;
+        double expected = Math.Clamp(_settings.LastTidalStartSeconds, 2, 60);
+        // Linear up to the expected time, then creep towards the end so the bar never looks stuck or finished.
+        LoadingProgress.Value = t < expected ? 0.9 * t / expected : 0.9 + 0.09 * (1 - Math.Exp(-(t - expected) / expected));
+        LoadingStage.Text = _tidalPrinted ? "Loading Tidal…" : "Starting GHC…";
+        LoadingDetail.Text = $"{t:0} s — usually about {expected:0} s.\nGHC needs a few seconds to load each time it starts.";
+    }
+
+    private void OnSkipLoading(object? sender, RoutedEventArgs e) => HideLoading();
 
     private void SetupEditor()
     {
@@ -136,13 +206,9 @@ public partial class MainWindow : Window
         tv.BackgroundRenderers.Add(_miniRenderer);
         tv.ElementGenerators.Add(_inlineGenerator);
 
-        Editor.TextArea.AddHandler(KeyDownEvent, OnEditorKeyDown, RoutingStrategies.Tunnel);
-        Editor.TextChanged += (_, _) =>
-        {
-            if (_dirty) return;
-            _dirty = true;
-            UpdateTitle();
-        };
+        // Registered on the editor (not its text area) so Shift/Ctrl+Enter run code even while a completion popup
+        // is open: the popup listens on the text area, which the tunnelling event reaches later.
+        Editor.AddHandler(KeyDownEvent, OnEditorKeyDown, RoutingStrategies.Tunnel);
         Editor.TextArea.Caret.PositionChanged += (_, _) => ShowErrorForCaretLine();
     }
 
@@ -154,6 +220,7 @@ public partial class MainWindow : Window
         if (_settings.HighlightMiniNotation && (_services.Clock.IsPlaying(_services.Time.Now) || _miniRenderer.LastDrawn > 0) || _flashRenderer.IsAnimating)
             tv.InvalidateLayer(KnownLayer.Background);
         if (_frame % 6 == 0) UpdateStatus();
+        if (_loadingWatch is not null && _frame % 3 == 0) UpdateLoading();
     }
 
     // ------------------------------------------------------------------ keyboard
@@ -180,7 +247,27 @@ public partial class MainWindow : Window
         bool alt = mods.HasFlag(KeyModifiers.Alt);
         bool shift = mods.HasFlag(KeyModifiers.Shift);
 
-        if (ctrl && alt && e.Key == Key.H || ctrl && !alt && e.Key == Key.OemPeriod)
+        if (e.Key == Key.Escape && _loadingWatch is not null)
+        {
+            e.Handled = true;
+            HideLoading();
+        }
+        else if (ctrl && shift && !alt && e.Key == Key.E)
+        {
+            e.Handled = true;
+            SetExplorerVisible(!Explorer.IsVisible);
+        }
+        else if (ctrl && !alt && !shift && e.Key == Key.W)
+        {
+            e.Handled = true;
+            if (_active is not null) _ = CloseTabAsync(_active);
+        }
+        else if (ctrl && !alt && (e.Key == Key.Tab || e.Key is Key.PageDown or Key.PageUp))
+        {
+            e.Handled = true;
+            CycleTab(e.Key == Key.PageUp || (e.Key == Key.Tab && shift) ? -1 : 1);
+        }
+        else if (ctrl && alt && e.Key == Key.H || ctrl && !alt && e.Key == Key.OemPeriod)
         {
             e.Handled = true;
             _ = HushAsync();
@@ -245,6 +332,7 @@ public partial class MainWindow : Window
     private async Task RunRangeAsync(int firstLine, int lastLine)
     {
         _runCount++;
+        _completion.Close();
         _lastRunLines = $"{firstLine + 1}-{lastLine + 1}";
         var doc = Editor.Document;
         var first = doc.GetLineByNumber(firstLine + 1);
@@ -285,7 +373,7 @@ public partial class MainWindow : Window
         }
 
         _flashRenderer.Flash(doc, start, raw.Length, result.Success);
-        _errorRenderer.ClearRange(start, start + raw.Length);
+        _errorRenderer.ClearRange(doc, start, start + raw.Length);
         if (!result.Success)
         {
             var marks = result.Errors.Select(err => (LineNumber: err.Line >= 0 ? firstLine + 1 + err.Line : firstLine + 1, err.Message)).ToList();
@@ -338,7 +426,8 @@ public partial class MainWindow : Window
             _console.Add(OutputKind.Error, "Could not find ghci. Install GHC + Tidal, or choose ghci via Tidal ▸ Choose ghci….");
             return;
         }
-        var boot = BootFiles.Choose(_settings.BootFilePath, _currentPath, _settings.UseBuiltInBootFile);
+        string? workDir = _settings.WorkingDirectory;
+        var boot = BootFiles.Choose(_settings.BootFilePath, CurrentPath, _settings.UseBuiltInBootFile, workDir);
         _bootSupportsVisuals = boot.SupportsVisuals;
         _bootDescription = boot.Description;
         _console.Add(OutputKind.Info, $"Boot file: {boot.Description}");
@@ -352,8 +441,15 @@ public partial class MainWindow : Window
         _services.Clock.Reset();
         try
         {
-            string? workDir = _currentPath is null ? null : Path.GetDirectoryName(_currentPath);
+            var watch = Stopwatch.StartNew();
             await _services.Ghci.StartAsync(ghci, boot.Text, workDir, TimeSpan.FromSeconds(90));
+            _settings.LastTidalStartSeconds = Math.Round(watch.Elapsed.TotalSeconds, 1);
+            await _completionCatalog.LoadFromTidalAsync();
+            if (_completionCatalog.TidalNameCount > 0)
+                _console.Add(OutputKind.Info, $"Autocomplete: {_completionCatalog.TidalNameCount} Tidal functions loaded (Ctrl+Space to show suggestions).");
+            // The working directory may have changed while ghci was starting.
+            if (_settings.WorkingDirectory is { } now && !string.Equals(now, workDir, StringComparison.OrdinalIgnoreCase))
+                await _services.Ghci.EvalAsync(GhciHost.SetDirectoryCommand(now));
         }
         catch (Exception e)
         {
@@ -386,45 +482,115 @@ public partial class MainWindow : Window
         hush
         """;
 
-    private void NewDocument(bool withSample)
+    /// <summary>Path of the file in the active tab (null for an untitled tab).</summary>
+    private string? CurrentPath => _active?.Path;
+
+    private static bool SamePath(string? a, string? b) =>
+        a is not null && b is not null && string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    private DocumentTab CreateTab(TextDocument document, string? path)
     {
-        Editor.Document = new TextDocument(withSample ? SampleCode.Replace("\r\n", "\n") : "");
-        Editor.Document.FileName = null;
-        _currentPath = null;
-        _errorRenderer.Clear();
-        _dirty = false;
-        UpdateTitle();
+        var tab = new DocumentTab(document, path, path is null ? $"untitled-{++_untitledCounter}" : "");
+        document.TextChanged += (_, _) =>
+        {
+            if (tab.Dirty) return;
+            tab.Dirty = true;
+            if (tab == _active) UpdateTitle();
+            RefreshTabs();
+        };
+        return tab;
     }
 
-    private void LoadFile(string path)
+    /// <summary>Adds a tab after the active one.</summary>
+    private void AddTab(DocumentTab tab, bool activate = true)
     {
+        int index = _active is null ? _tabs.Count : _tabs.IndexOf(_active) + 1;
+        _tabs.Insert(Math.Clamp(index, 0, _tabs.Count), tab);
+        if (activate) ActivateTab(tab);
+        else RefreshTabs();
+    }
+
+    private void ActivateTab(DocumentTab tab)
+    {
+        if (!_tabs.Contains(tab)) return;
+        if (tab == _active && ReferenceEquals(Editor.Document, tab.Document))
+        {
+            Editor.Focus();
+            return;
+        }
+        _completion.Close();
+        if (_active is not null && _tabs.Contains(_active) && ReferenceEquals(Editor.Document, _active.Document))
+        {
+            _active.CaretOffset = Editor.CaretOffset;
+            _active.VerticalOffset = Editor.VerticalOffset;
+        }
+        _active = tab;
+        Editor.Document = tab.Document;
+        Editor.CaretOffset = Math.Min(tab.CaretOffset, tab.Document.TextLength);
+        double scroll = tab.VerticalOffset;
+        Dispatcher.UIThread.Post(() => { if (_active == tab) Editor.ScrollToVerticalOffset(scroll); }, DispatcherPriority.Loaded);
+        if (tab.Path is not null) _settings.LastFile = tab.Path;
+        Explorer.SetCurrentFile(tab.Path);
+        UpdateTitle();
+        RefreshTabs();
+        Editor.Focus();
+    }
+
+    private void RefreshTabs() => Tabs.Update(_tabs, _active);
+
+    private void CycleTab(int direction)
+    {
+        if (_tabs.Count < 2 || _active is null) return;
+        int i = _tabs.IndexOf(_active);
+        ActivateTab(_tabs[((i + direction) % _tabs.Count + _tabs.Count) % _tabs.Count]);
+    }
+
+    private void NewDocument(bool withSample)
+    {
+        var tab = CreateTab(new TextDocument(withSample ? SampleCode.Replace("\r\n", "\n") : ""), null);
+        AddTab(tab);
+    }
+
+    /// <summary>Opens a file in a new tab, or switches to its tab when it is already open.</summary>
+    private void OpenFile(string path, bool activate = true)
+    {
+        path = Path.GetFullPath(path);
+        if (_tabs.FirstOrDefault(t => SamePath(t.Path, path)) is { } existing)
+        {
+            if (activate) ActivateTab(existing);
+            return;
+        }
+        string text;
         try
         {
-            string text = File.ReadAllText(path);
-            Editor.Document = new TextDocument(text) { FileName = path };
-            _currentPath = path;
-            _errorRenderer.Clear();
-            _dirty = false;
-            _settings.LastFile = path;
-            _settings.AddRecent(path);
-            RebuildRecentMenu();
-            UpdateTitle();
+            text = File.ReadAllText(path);
         }
         catch (Exception e)
         {
             _console.Add(OutputKind.Error, $"Could not open {path}: {e.Message}");
+            return;
         }
+        var tab = CreateTab(new TextDocument(text) { FileName = path }, path);
+        // An untouched untitled tab (like the welcome sample) is replaced instead of piling up.
+        var pristine = activate && _active is { Path: null, Dirty: false } ? _active : null;
+        AddTab(tab, activate);
+        if (pristine is not null) RemoveTab(pristine);
+        _settings.AddRecent(path);
+        RebuildRecentMenu();
     }
 
-    private async Task<bool> SaveAsync()
+    private async Task<bool> SaveAsync(DocumentTab? tab = null)
     {
-        if (_currentPath is null) return await SaveAsAsync();
+        tab ??= _active;
+        if (tab is null) return false;
+        if (tab.Path is null) return await SaveAsAsync(tab);
         try
         {
-            await File.WriteAllTextAsync(_currentPath, Editor.Document.Text, new UTF8Encoding(false));
-            _dirty = false;
+            await File.WriteAllTextAsync(tab.Path, tab.Document.Text, new UTF8Encoding(false));
+            tab.Dirty = false;
             UpdateTitle();
-            SetMessage($"Saved {Path.GetFileName(_currentPath)}");
+            RefreshTabs();
+            SetMessage($"Saved {Path.GetFileName(tab.Path)}");
             return true;
         }
         catch (Exception e)
@@ -434,64 +600,215 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> SaveAsAsync()
+    private async Task<bool> SaveAsAsync(DocumentTab? tab = null)
     {
+        tab ??= _active;
+        if (tab is null) return false;
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "Save Tidal file",
             DefaultExtension = "tidal",
-            SuggestedFileName = _currentPath is null ? "untitled.tidal" : Path.GetFileName(_currentPath),
+            SuggestedFileName = tab.Path is null ? tab.UntitledName + ".tidal" : Path.GetFileName(tab.Path),
             FileTypeChoices = new[] { TidalFileType, FilePickerFileTypes.All },
+            SuggestedStartLocation = await StartFolderAsync(tab.Path is null ? null : Path.GetDirectoryName(tab.Path)),
         });
         var path = file?.TryGetLocalPath();
         if (path is null) return false;
-        _currentPath = path;
-        Editor.Document.FileName = path;
+        // Saving over a file that is open in another tab: that tab is now stale, so close it.
+        foreach (var other in _tabs.Where(t => t != tab && SamePath(t.Path, path)).ToList()) RemoveTab(other);
+        tab.Path = path;
+        tab.Document.FileName = path;
         _settings.LastFile = path;
         _settings.AddRecent(path);
         RebuildRecentMenu();
-        return await SaveAsync();
+        if (tab == _active) Explorer.SetCurrentFile(path);
+        return await SaveAsync(tab);
+    }
+
+    /// <summary>Asks to save a modified tab. Returns false when the user cancels.</summary>
+    private async Task<bool> ConfirmDiscardAsync(DocumentTab tab)
+    {
+        if (!tab.Dirty) return true;
+        ActivateTab(tab);
+        var answer = await Dialogs.AskSaveChanges(this, tab.DisplayName);
+        return answer switch
+        {
+            DialogResult.Yes => await SaveAsync(tab),
+            DialogResult.No => true,
+            _ => false,
+        };
+    }
+
+    private async Task<bool> CloseTabAsync(DocumentTab tab)
+    {
+        if (!await ConfirmDiscardAsync(tab)) return false;
+        RemoveTab(tab);
+        return true;
+    }
+
+    private async Task CloseTabsAsync(List<DocumentTab> tabs)
+    {
+        foreach (var tab in tabs)
+            if (!await CloseTabAsync(tab)) return;
+    }
+
+    /// <summary>Removes a tab without asking. There is always at least one tab.</summary>
+    private void RemoveTab(DocumentTab tab)
+    {
+        int index = _tabs.IndexOf(tab);
+        if (index < 0) return;
+        _tabs.RemoveAt(index);
+        _errorRenderer.Clear(tab.Document);
+        if (_tabs.Count == 0)
+        {
+            _active = null;
+            NewDocument(withSample: false);
+            return;
+        }
+        if (tab == _active)
+        {
+            _active = null;
+            ActivateTab(_tabs[Math.Min(index, _tabs.Count - 1)]);
+        }
+        else RefreshTabs();
     }
 
     private static readonly FilePickerFileType TidalFileType = new("Tidal files") { Patterns = new[] { "*.tidal", "*.hs" } };
 
     private async Task OpenAsync()
     {
-        if (!await ConfirmDiscardAsync()) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Open Tidal file",
-            AllowMultiple = false,
+            AllowMultiple = true,
             FileTypeFilter = new[] { TidalFileType, FilePickerFileTypes.All },
+            SuggestedStartLocation = await StartFolderAsync(),
         });
-        var path = files.FirstOrDefault()?.TryGetLocalPath();
-        if (path is not null) LoadFile(path);
+        foreach (var path in files.Select(f => f.TryGetLocalPath()).OfType<string>()) OpenFile(path);
     }
 
-    private async Task NewAsync()
+    /// <summary>Where file dialogs open: the given folder, else the working directory.</summary>
+    private async Task<IStorageFolder?> StartFolderAsync(string? preferred = null)
     {
-        if (!await ConfirmDiscardAsync()) return;
-        NewDocument(withSample: false);
+        string? dir = preferred is not null && Directory.Exists(preferred) ? preferred
+            : _settings.WorkingDirectory is { } wd && Directory.Exists(wd) ? wd : null;
+        if (dir is null) return null;
+        try { return await StorageProvider.TryGetFolderFromPathAsync(dir); }
+        catch (Exception) { return null; }
     }
 
-    /// <summary>Returns false when the user cancels.</summary>
-    private async Task<bool> ConfirmDiscardAsync()
+    // ------------------------------------------------------------------ working directory and explorer
+
+    /// <summary>
+    /// Makes <paramref name="directory"/> the explorer root and ghci's current directory (without restarting Tidal,
+    /// so playing patterns keep playing).
+    /// </summary>
+    private async Task SetWorkingDirectoryAsync(string directory, bool announce = true)
     {
-        if (!_dirty) return true;
-        var answer = await Dialogs.AskSaveChanges(this, _currentPath is null ? "untitled" : Path.GetFileName(_currentPath));
-        return answer switch
+        try { directory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)); }
+        catch (Exception) { return; }
+        if (!Directory.Exists(directory)) return;
+        _settings.WorkingDirectory = directory;
+        Explorer.SetRoot(directory);
+        if (!announce) return;
+        _console.Add(OutputKind.Info, $"Working directory: {directory}");
+        if (_services.Ghci.IsReady)
         {
-            DialogResult.Yes => await SaveAsync(),
-            DialogResult.No => true,
-            _ => false,
-        };
+            var result = await _services.Ghci.EvalAsync(GhciHost.SetDirectoryCommand(directory));
+            if (!result.Success) _console.Add(OutputKind.Error, $"Could not change ghci's directory: {FirstLine(result.ErrorText)}");
+        }
+    }
+
+    private async Task ChooseWorkingDirectoryAsync()
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose working directory",
+            SuggestedStartLocation = await StartFolderAsync(),
+        });
+        var path = folders.FirstOrDefault()?.TryGetLocalPath();
+        if (path is not null)
+        {
+            await SetWorkingDirectoryAsync(path);
+            SetExplorerVisible(true);
+        }
+    }
+
+    private const long MaxOpenFileBytes = 5 * 1024 * 1024;
+
+    private async void OnExplorerOpen(string path)
+    {
+        if (_tabs.FirstOrDefault(t => SamePath(t.Path, path)) is { } open)
+        {
+            ActivateTab(open);
+            return;
+        }
+        try
+        {
+            if (new FileInfo(path).Length > MaxOpenFileBytes)
+            {
+                await Dialogs.ShowMessage(this, "File too large", $"{Path.GetFileName(path)} is larger than 5 MB; TidalStudio only opens code files.");
+                return;
+            }
+        }
+        catch (IOException) { return; }
+        OpenFile(path);
+    }
+
+    private async void OnExplorerNewFile(string directory)
+    {
+        var name = (await Dialogs.Prompt(this, "New Tidal file", $"File name (in {directory}):", "untitled.tidal", "Create"))?.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+        if (!Path.HasExtension(name)) name += ".tidal";
+        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            await Dialogs.ShowMessage(this, "Invalid name", $"\"{name}\" is not a valid file name.");
+            return;
+        }
+        string path = Path.Combine(directory, name);
+        if (File.Exists(path))
+        {
+            await Dialogs.ShowMessage(this, "File exists", $"{path} already exists.");
+            return;
+        }
+        try
+        {
+            await File.WriteAllTextAsync(path, "", new UTF8Encoding(false));
+        }
+        catch (Exception e)
+        {
+            await Dialogs.ShowMessage(this, "Could not create file", e.Message);
+            return;
+        }
+        OpenFile(path);
+        Explorer.Refresh();
+    }
+
+    private void SetExplorerVisible(bool visible)
+    {
+        if (Explorer.IsVisible && !visible && MainGrid.ColumnDefinitions[0].ActualWidth > 0)
+            _settings.ExplorerWidth = MainGrid.ColumnDefinitions[0].ActualWidth;
+        Explorer.IsVisible = visible;
+        MainGrid.ColumnDefinitions[0].Width = visible ? new GridLength(Math.Clamp(_settings.ExplorerWidth, 140, 800)) : new GridLength(0);
+        MainGrid.ColumnDefinitions[1].Width = visible ? new GridLength(4) : new GridLength(0);
+        _settings.ShowExplorer = visible;
+        ShowExplorerItem.IsChecked = visible;
+    }
+
+    private void OnChooseWorkingDirectory(object? sender, RoutedEventArgs e) => _ = ChooseWorkingDirectoryAsync();
+    private void OnToggleExplorer(object? sender, RoutedEventArgs e) => SetExplorerVisible(!Explorer.IsVisible);
+
+    private Task NewAsync()
+    {
+        NewDocument(withSample: false);
+        return Task.CompletedTask;
     }
 
     private void UpdateTitle()
     {
-        string name = _currentPath is null ? "untitled" : Path.GetFileName(_currentPath);
-        Title = $"{(_dirty ? "● " : "")}{name} — TidalStudio";
-        StatusFile.Text = _currentPath ?? "untitled";
+        if (_active is null) return;
+        Title = $"{(_active.Dirty ? "● " : "")}{_active.DisplayName} — TidalStudio";
+        StatusFile.Text = _active.Path ?? _active.UntitledName;
     }
 
     private void RebuildRecentMenu()
@@ -501,10 +818,10 @@ public partial class MainWindow : Window
         {
             var item = new MenuItem { Header = path };
             string p = path;
-            item.Click += async (_, _) =>
+            item.Click += (_, _) =>
             {
                 if (!File.Exists(p)) { SetMessage($"{p} no longer exists"); return; }
-                if (await ConfirmDiscardAsync()) LoadFile(p);
+                OpenFile(p);
             };
             items.Add(item);
         }
@@ -518,7 +835,10 @@ public partial class MainWindow : Window
     {
         if (_closeConfirmed) return;
         e.Cancel = true;
-        if (!await ConfirmDiscardAsync()) return;
+        foreach (var tab in _tabs.Where(t => t.Dirty).ToList())
+            if (!await ConfirmDiscardAsync(tab)) return;
+        _settings.OpenFiles = _tabs.Select(t => t.Path).OfType<string>().ToList();
+        if (CurrentPath is not null) _settings.LastFile = CurrentPath;
         _closeConfirmed = true;
         SaveWindowState();
         try { _settings.Save(); } catch (Exception) { }
@@ -532,9 +852,10 @@ public partial class MainWindow : Window
         Width = Math.Max(MinWidth, _settings.WindowWidth);
         Height = Math.Max(MinHeight, _settings.WindowHeight);
         if (_settings.WindowMaximized) WindowState = WindowState.Maximized;
-        MainGrid.ColumnDefinitions[2].Width = new GridLength(Math.Clamp(_settings.VisualizerPanelWidth, 200, 1200));
+        MainGrid.ColumnDefinitions[4].Width = new GridLength(Math.Clamp(_settings.VisualizerPanelWidth, 200, 1200));
         LeftGrid.RowDefinitions[2].Height = new GridLength(Math.Clamp(_settings.ConsoleHeight, 40, 800));
         if (_settings.VisualizerPanelWidth <= 0) SetPanelVisible(false);
+        SetExplorerVisible(_settings.ShowExplorer);
     }
 
     private void SaveWindowState()
@@ -545,7 +866,8 @@ public partial class MainWindow : Window
             _settings.WindowWidth = Width;
             _settings.WindowHeight = Height;
         }
-        if (VisualizerPanel.IsVisible) _settings.VisualizerPanelWidth = MainGrid.ColumnDefinitions[2].ActualWidth;
+        if (VisualizerPanel.IsVisible) _settings.VisualizerPanelWidth = MainGrid.ColumnDefinitions[4].ActualWidth;
+        if (Explorer.IsVisible) _settings.ExplorerWidth = MainGrid.ColumnDefinitions[0].ActualWidth;
         _settings.ConsoleHeight = LeftGrid.RowDefinitions[2].ActualHeight;
         _settings.FontSize = Editor.FontSize;
     }
@@ -620,6 +942,7 @@ public partial class MainWindow : Window
         AudioItem.IsChecked = _settings.CaptureAudio;
         LineNumbersItem.IsChecked = _settings.ShowLineNumbers;
         WordWrapItem.IsChecked = _settings.WordWrap;
+        AutocompleteItem.IsChecked = _settings.Autocomplete;
         AutoStartItem.IsChecked = _settings.StartTidalOnLaunch;
         ShowPanelItem.IsChecked = true;
         StyleBackgroundItem.IsChecked = _settings.HighlightStyle == HighlightStyle.Background;
@@ -640,8 +963,8 @@ public partial class MainWindow : Window
     private void SetPanelVisible(bool visible)
     {
         VisualizerPanel.IsVisible = visible;
-        MainGrid.ColumnDefinitions[1].Width = visible ? new GridLength(4) : new GridLength(0);
-        MainGrid.ColumnDefinitions[2].Width = visible ? new GridLength(Math.Clamp(_settings.VisualizerPanelWidth, 200, 1200)) : new GridLength(0);
+        MainGrid.ColumnDefinitions[3].Width = visible ? new GridLength(4) : new GridLength(0);
+        MainGrid.ColumnDefinitions[4].Width = visible ? new GridLength(Math.Clamp(_settings.VisualizerPanelWidth, 200, 1200)) : new GridLength(0);
         ShowPanelItem.IsChecked = visible;
     }
 
@@ -774,12 +1097,12 @@ public partial class MainWindow : Window
 
     private async void OnInstallBoot(object? sender, RoutedEventArgs e)
     {
-        if (_currentPath is null)
+        if (CurrentPath is null)
         {
             await Dialogs.ShowMessage(this, "Save the file first", "Save your .tidal file first, so TidalStudio knows which folder to write BootTidal.hs to.");
             return;
         }
-        string target = Path.Combine(Path.GetDirectoryName(_currentPath)!, BootFiles.BootFileName);
+        string target = Path.Combine(Path.GetDirectoryName(CurrentPath)!, BootFiles.BootFileName);
         string message = File.Exists(target)
             ? $"Replace {target} with TidalStudio's boot file?\n\nThe current file is kept as BootTidal.hs.bak. TidalStudio's version is the standard boot file plus: events are also sent to the editor (UDP 57130), and the helpers for highlighting (tsctx, color). It keeps working in VS Code and other editors."
             : $"Write TidalStudio's boot file to {target}?";
@@ -896,6 +1219,18 @@ public partial class MainWindow : Window
         LineNumbersItem.IsChecked = _settings.ShowLineNumbers;
     }
 
+    private void OnCloseTab(object? sender, RoutedEventArgs e) { if (_active is not null) _ = CloseTabAsync(_active); }
+    private void OnCloseAllTabs(object? sender, RoutedEventArgs e) => _ = CloseTabsAsync(_tabs.ToList());
+    private void OnNextTab(object? sender, RoutedEventArgs e) => CycleTab(1);
+    private void OnPreviousTab(object? sender, RoutedEventArgs e) => CycleTab(-1);
+
+    private void OnToggleAutocomplete(object? sender, RoutedEventArgs e)
+    {
+        _settings.Autocomplete = !_settings.Autocomplete;
+        _completion.Enabled = _settings.Autocomplete;
+        AutocompleteItem.IsChecked = _settings.Autocomplete;
+    }
+
     private void OnToggleWordWrap(object? sender, RoutedEventArgs e)
     {
         _settings.WordWrap = !_settings.WordWrap;
@@ -933,6 +1268,19 @@ public partial class MainWindow : Window
         Files
           Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S
           Ctrl+= / Ctrl+-    bigger / smaller font
+          Ctrl+Shift+E       show / hide the file explorer
+          Ctrl+W             close the tab;  Ctrl+Tab / Ctrl+Shift+Tab  next / previous tab
+          Middle-click a tab to close it. Open tabs are reopened next time.
+
+        Autocomplete
+          Suggestions appear while typing: Tidal functions (with their types), effects after #,
+          sample names inside s "…", and inline visuals after -- _ (with their options).
+          Ctrl+Space shows suggestions; Enter or Tab accepts; Esc closes.
+
+        Working directory
+          The explorer shows the working directory; it is also ghci's current directory and where file dialogs
+          open. Change it with File ▸ Set working directory…, the folder button in the explorer, or right-click a
+          folder ▸ Set as working directory. Tidal keeps playing while it changes.
 
         Visual feedback
           While a pattern plays, the parts of its mini-notation that sound light up in the code.
@@ -959,6 +1307,7 @@ public partial class MainWindow : Window
         $"TidalStudio — a live-coding editor for TidalCycles with visual feedback.\n\n" +
         $"ghci: {_services.Ghci.GhciPath ?? ToolLocator.FindGhci(_settings.GhciPath) ?? "not found"}\n" +
         $"Boot file: {_bootDescription ?? "(Tidal not started)"}\n" +
+        $"Working directory: {_settings.WorkingDirectory ?? "(none)"}\n" +
         $"Settings: {AppSettings.DefaultPath}\n" +
         $"Editor event port: UDP {_settings.EditorOscPort}");
 }

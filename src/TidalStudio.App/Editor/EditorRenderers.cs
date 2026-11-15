@@ -91,6 +91,7 @@ public delegate TextDocument? TextDocumentProvider();
 public sealed class EvalFlashRenderer : IBackgroundRenderer
 {
     private readonly TimeProvider _time = TimeProvider.System;
+    private TextDocument? _document;
     private TextAnchor? _start;
     private TextAnchor? _end;
     private long _startedAt;
@@ -103,6 +104,7 @@ public sealed class EvalFlashRenderer : IBackgroundRenderer
 
     public void Flash(TextDocument document, int start, int length, bool success)
     {
+        _document = document;
         _start = document.CreateAnchor(start);
         _end = document.CreateAnchor(start + length);
         _end.MovementType = AnchorMovementType.AfterInsertion;
@@ -112,7 +114,7 @@ public sealed class EvalFlashRenderer : IBackgroundRenderer
 
     public void Draw(TextView textView, DrawingContext drawingContext)
     {
-        if (_start is null || _end is null || _start.IsDeleted || _end.IsDeleted) return;
+        if (_start is null || _end is null || _start.IsDeleted || _end.IsDeleted || !ReferenceEquals(textView.Document, _document)) return;
         double t = _time.GetElapsedTime(_startedAt).TotalSeconds / DurationSeconds;
         if (t >= 1) return;
         var builder = new BackgroundGeometryBuilder { CornerRadius = 2, AlignToWholePixels = true, ExtendToFullWidthAtLineEnd = true };
@@ -125,43 +127,52 @@ public sealed class EvalFlashRenderer : IBackgroundRenderer
     }
 }
 
-/// <summary>Marks lines that produced a ghci error.</summary>
+/// <summary>Marks lines that produced a ghci error. Marks are kept per document (one per tab).</summary>
 public sealed class ErrorLineRenderer : IBackgroundRenderer
 {
-    private readonly List<(TextAnchor Anchor, string Message)> _errors = new();
+    private readonly Dictionary<TextDocument, List<(TextAnchor Anchor, string Message)>> _byDocument = new();
     private static readonly IBrush LineBrush = new SolidColorBrush(Color.FromArgb(40, 255, 83, 112));
     private static readonly IBrush MarkBrush = new SolidColorBrush(Color.FromRgb(255, 83, 112));
 
     public KnownLayer Layer => KnownLayer.Background;
 
+    private List<(TextAnchor Anchor, string Message)> For(TextDocument document)
+    {
+        if (!_byDocument.TryGetValue(document, out var list)) _byDocument[document] = list = new();
+        return list;
+    }
+
     public void Set(TextDocument document, IEnumerable<(int LineNumber, string Message)> errors)
     {
-        _errors.Clear();
+        var list = For(document);
+        list.Clear();
         foreach (var (lineNumber, message) in errors)
         {
             if (lineNumber < 1 || lineNumber > document.LineCount) continue;
             var anchor = document.CreateAnchor(document.GetLineByNumber(lineNumber).Offset);
-            _errors.Add((anchor, message));
+            list.Add((anchor, message));
         }
     }
 
     /// <summary>Removes error marks on lines inside [start, end).</summary>
-    public void ClearRange(int start, int end) =>
-        _errors.RemoveAll(x => x.Anchor.IsDeleted || (x.Anchor.Offset >= start && x.Anchor.Offset <= end));
+    public void ClearRange(TextDocument document, int start, int end) =>
+        For(document).RemoveAll(x => x.Anchor.IsDeleted || (x.Anchor.Offset >= start && x.Anchor.Offset <= end));
 
-    public void Clear() => _errors.Clear();
+    /// <summary>Forgets a document's marks (when its tab closes).</summary>
+    public void Clear(TextDocument document) => _byDocument.Remove(document);
 
     public string? MessageAt(TextDocument document, int lineNumber)
     {
-        foreach (var (anchor, message) in _errors)
+        if (!_byDocument.TryGetValue(document, out var errors)) return null;
+        foreach (var (anchor, message) in errors)
             if (!anchor.IsDeleted && document.GetLineByOffset(anchor.Offset).LineNumber == lineNumber) return message;
         return null;
     }
 
     public void Draw(TextView textView, DrawingContext drawingContext)
     {
-        if (_errors.Count == 0 || !textView.VisualLinesValid) return;
-        foreach (var (anchor, _) in _errors)
+        if (textView.Document is null || !_byDocument.TryGetValue(textView.Document, out var errors) || errors.Count == 0 || !textView.VisualLinesValid) return;
+        foreach (var (anchor, _) in errors)
         {
             if (anchor.IsDeleted) continue;
             int lineNumber = textView.Document.GetLineByOffset(anchor.Offset).LineNumber;

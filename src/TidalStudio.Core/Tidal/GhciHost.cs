@@ -51,6 +51,9 @@ public sealed partial class GhciHost : IAsyncDisposable
         public required int FirstCodeLine { get; init; } // ghci's global input line number of the block's first line
         public required int LineCount { get; init; }
         public List<string> ErrorLines { get; } = new();
+        /// <summary>Quiet evaluations collect stdout here instead of reporting it through <see cref="Output"/>.</summary>
+        public bool Quiet { get; init; }
+        public List<string> OutputLines { get; } = new();
         public TaskCompletionSource<EvalResult> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -102,7 +105,9 @@ public sealed partial class GhciHost : IAsyncDisposable
         lines.Add(":set prompt \"\"");
         lines.Add(":set prompt-cont \"\"");
         lines.Add($"Prelude.putStrLn \"{ReadyMarker}\"");
-        WriteLines(lines);
+        // ghci reads nothing until GHC has initialised (~5 s on Windows), and the boot file is bigger than the
+        // pipe buffer, so this write blocks until then. Keep it off the caller's (UI) thread.
+        _ = Task.Run(() => WriteLines(lines));
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
         cts.CancelAfter(timeout);
@@ -122,15 +127,28 @@ public sealed partial class GhciHost : IAsyncDisposable
     }
 
     /// <summary>Evaluates code. Waits for earlier evaluations to finish first.</summary>
-    public async Task<EvalResult> EvalAsync(string code, TimeSpan? timeout = null)
+    public async Task<EvalResult> EvalAsync(string code, TimeSpan? timeout = null) =>
+        (await RunAsync(code, timeout, quiet: false).ConfigureAwait(false)).Result;
+
+    /// <summary>
+    /// Runs a command (e.g. <c>:browse Sound.Tidal.Context</c>) without showing anything in the console, and returns
+    /// what it printed. Returns an empty list when Tidal is not running or the command fails.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> QueryAsync(string command, TimeSpan? timeout = null)
+    {
+        var (result, output) = await RunAsync(command, timeout, quiet: true).ConfigureAwait(false);
+        return result.Success ? output : Array.Empty<string>();
+    }
+
+    private async Task<(EvalResult Result, IReadOnlyList<string> Output)> RunAsync(string code, TimeSpan? timeout, bool quiet)
     {
         code = code.Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
-        if (code.Length == 0) return new EvalResult(true, Array.Empty<EvalError>(), "");
+        if (code.Length == 0) return (new EvalResult(true, Array.Empty<EvalError>(), ""), Array.Empty<string>());
 
         await _evalLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (_process is null || State != GhciState.Ready) return EvalResult.NotRunning;
+            if (_process is null || State != GhciState.Ready) return (EvalResult.NotRunning, Array.Empty<string>());
 
             var codeLines = code.Split('\n');
             bool multi = codeLines.Length > 1;
@@ -139,6 +157,7 @@ public sealed partial class GhciHost : IAsyncDisposable
                 Id = Interlocked.Increment(ref _evalCounter),
                 FirstCodeLine = _linesSent + 1 + (multi ? 1 : 0),
                 LineCount = codeLines.Length,
+                Quiet = quiet,
             };
             _pending = pending;
 
@@ -154,9 +173,9 @@ public sealed partial class GhciHost : IAsyncDisposable
             if (done != t)
             {
                 _pending = null;
-                return new EvalResult(false, new[] { new EvalError(-1, 0, "Timed out waiting for ghci") }, "Timed out waiting for ghci");
+                return (new EvalResult(false, new[] { new EvalError(-1, 0, "Timed out waiting for ghci") }, "Timed out waiting for ghci"), Array.Empty<string>());
             }
-            return t.Result;
+            return (t.Result, pending.OutputLines);
         }
         finally
         {
@@ -221,13 +240,23 @@ public sealed partial class GhciHost : IAsyncDisposable
             {
                 if (int.TryParse(line.AsSpan(done + DoneMarkerPrefix.Length), out int id)) _ = CompleteAsync(id);
                 string before = line[..done];
-                if (before.Length > 0) Emit(OutputKind.Output, before);
+                if (before.Length > 0)
+                {
+                    if (_pending is { Quiet: true } q) q.OutputLines.Add(before);
+                    else Emit(OutputKind.Output, before);
+                }
+                return;
+            }
+            if (_pending is { Quiet: true } quiet)
+            {
+                quiet.OutputLines.Add(line);
                 return;
             }
             if (line.Length == 0) return;
         }
 
         if (isError) _pending?.ErrorLines.Add(line);
+        if (isError && _pending is { Quiet: true }) return;
         Emit(isError ? OutputKind.Error : OutputKind.Output, line);
     }
 
@@ -248,6 +277,20 @@ public sealed partial class GhciHost : IAsyncDisposable
     private static partial Regex PromptPrefix();
 
     public static string StripPrompts(string line) => PromptPrefix().Replace(line, "");
+
+    /// <summary>
+    /// Haskell that changes ghci's current directory. Unlike <c>:cd</c>, this keeps every binding (d1, hush, …).
+    /// </summary>
+    public static string SetDirectoryCommand(string directory)
+    {
+        var escaped = new StringBuilder(directory.Length + 8);
+        foreach (char c in directory)
+        {
+            if (c is '\\' or '"') escaped.Append('\\');
+            escaped.Append(c);
+        }
+        return $"System.Directory.setCurrentDirectory \"{escaped}\"";
+    }
 
     [GeneratedRegex(@"^<interactive>:(?:(\d+):(\d+)(?:-\d+)?|\((\d+),(\d+)\)-\(\d+,\d+\)):\s*(error|warning)", RegexOptions.CultureInvariant)]
     private static partial Regex ErrorLocation();

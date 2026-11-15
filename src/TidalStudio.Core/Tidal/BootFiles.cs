@@ -26,9 +26,9 @@ public static class BootFiles
 
     /// <summary>
     /// Order: explicit path from settings; BootTidal.hs next to the open file (or a parent folder, like the
-    /// VS Code extension); otherwise the built-in boot file.
+    /// VS Code extension); BootTidal.hs in the working directory; otherwise the built-in boot file.
     /// </summary>
-    public static BootFileChoice Choose(string? configuredPath, string? documentPath, bool preferBuiltIn)
+    public static BootFileChoice Choose(string? configuredPath, string? documentPath, bool preferBuiltIn, string? workingDirectory = null)
     {
         if (preferBuiltIn) return FromBuiltIn();
 
@@ -47,6 +47,12 @@ public static class BootFiles
                 if (File.Exists(candidate)) return FromFile(candidate, "next to the file");
                 dir = System.IO.Path.GetDirectoryName(dir);
             }
+        }
+
+        if (!string.IsNullOrEmpty(workingDirectory))
+        {
+            var candidate = System.IO.Path.Combine(workingDirectory, BootFileName);
+            if (File.Exists(candidate)) return FromFile(candidate, "in the working directory");
         }
 
         return FromBuiltIn();

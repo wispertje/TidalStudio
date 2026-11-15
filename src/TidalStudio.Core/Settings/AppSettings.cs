@@ -31,6 +31,7 @@ public sealed class AppSettings
     public string FontFamily { get; set; } = "Cascadia Mono, Consolas, Menlo, monospace";
     public bool ShowLineNumbers { get; set; } = true;
     public bool WordWrap { get; set; }
+    public bool Autocomplete { get; set; } = true;
 
     // Mini-notation highlighting
     public bool HighlightMiniNotation { get; set; } = true;
@@ -49,7 +50,15 @@ public sealed class AppSettings
     public double WindowHeight { get; set; } = 900;
     public bool WindowMaximized { get; set; }
     public double ConsoleHeight { get; set; } = 170;
+    /// <summary>Root of the file explorer, ghci's current directory, and where file dialogs start.</summary>
+    public string? WorkingDirectory { get; set; }
+    public bool ShowExplorer { get; set; } = true;
+    public double ExplorerWidth { get; set; } = 240;
+    /// <summary>How long the last Tidal start took, to estimate progress on the loading screen.</summary>
+    public double LastTidalStartSeconds { get; set; } = 8;
     public string? LastFile { get; set; }
+    /// <summary>Files open in tabs when TidalStudio closed; reopened on the next start.</summary>
+    public List<string> OpenFiles { get; set; } = new();
     public List<string> RecentFiles { get; set; } = new();
 
     public static readonly string[] DefaultPalette =

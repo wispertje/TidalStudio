@@ -1,20 +1,30 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ae="using:AvaloniaEdit"
+        xmlns:ex="using:TidalStudio.App.Explorer"
+        xmlns:ed="using:TidalStudio.App.Editor"
         x:Class="TidalStudio.App.MainWindow"
         Title="TidalStudio"
+        Icon="avares://TidalStudio/Assets/TidalStudio.ico"
         Width="1400" Height="900"
         MinWidth="700" MinHeight="400"
         Background="{StaticResource TsWindowBackground}">
+    <Panel>
     <DockPanel>
         <Menu DockPanel.Dock="Top" x:Name="MainMenu" Background="{StaticResource TsPanelBackground}">
             <MenuItem Header="_File">
-                <MenuItem Header="_New" InputGesture="Ctrl+N" Click="OnNew" />
+                <MenuItem Header="_New tab" InputGesture="Ctrl+N" Click="OnNew" />
                 <MenuItem Header="_Open…" InputGesture="Ctrl+O" Click="OnOpen" />
                 <MenuItem Header="Open _recent" x:Name="RecentMenu" />
+                <MenuItem Header="Set _working directory…" Click="OnChooseWorkingDirectory" />
                 <Separator />
                 <MenuItem Header="_Save" InputGesture="Ctrl+S" Click="OnSave" />
                 <MenuItem Header="Save _as…" InputGesture="Ctrl+Shift+S" Click="OnSaveAs" />
+                <Separator />
+                <MenuItem Header="_Close tab" InputGesture="Ctrl+W" Click="OnCloseTab" />
+                <MenuItem Header="Close _all tabs" Click="OnCloseAllTabs" />
+                <MenuItem Header="Next tab" InputGesture="Ctrl+Tab" Click="OnNextTab" />
+                <MenuItem Header="Previous tab" InputGesture="Ctrl+Shift+Tab" Click="OnPreviousTab" />
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" />
             </MenuItem>
@@ -44,6 +54,7 @@
             <MenuItem Header="_View">
                 <MenuItem Header="Add visualizer" x:Name="AddVisualizerMenu" />
                 <MenuItem Header="Reset visualizers" Click="OnResetVisualizers" />
+                <MenuItem Header="Show file explorer" x:Name="ShowExplorerItem" ToggleType="CheckBox" InputGesture="Ctrl+Shift+E" Click="OnToggleExplorer" />
                 <MenuItem Header="Show visualizer panel" x:Name="ShowPanelItem" ToggleType="CheckBox" Click="OnTogglePanel" />
                 <Separator />
                 <MenuItem Header="Highlight mini-notation" x:Name="HighlightItem" ToggleType="CheckBox" Click="OnToggleHighlight" />
@@ -55,6 +66,7 @@
                 <MenuItem Header="Inline visuals (-- _punchcard …)" x:Name="InlineItem" ToggleType="CheckBox" Click="OnToggleInline" />
                 <MenuItem Header="Audio capture (scope / spectrum)" x:Name="AudioItem" ToggleType="CheckBox" Click="OnToggleAudio" />
                 <Separator />
+                <MenuItem Header="Autocomplete while typing (Ctrl+Space always works)" x:Name="AutocompleteItem" ToggleType="CheckBox" Click="OnToggleAutocomplete" />
                 <MenuItem Header="Line numbers" x:Name="LineNumbersItem" ToggleType="CheckBox" Click="OnToggleLineNumbers" />
                 <MenuItem Header="Word wrap" x:Name="WordWrapItem" ToggleType="CheckBox" Click="OnToggleWordWrap" />
                 <MenuItem Header="Bigger font" InputGesture="Ctrl+OemPlus" Click="OnFontBigger" />
@@ -82,9 +94,13 @@
             </DockPanel>
         </Border>
 
-        <Grid x:Name="MainGrid" ColumnDefinitions="*,4,380">
-            <Grid x:Name="LeftGrid" Grid.Column="0" RowDefinitions="*,4,170">
-                <Panel x:Name="EditorArea" Grid.Row="0" Background="{StaticResource TsEditorBackground}">
+        <Grid x:Name="MainGrid" ColumnDefinitions="240,4,*,4,380">
+            <ex:FileExplorer x:Name="Explorer" Grid.Column="0" />
+            <GridSplitter Grid.Column="1" Background="{StaticResource TsBorder}" ResizeDirection="Columns" />
+            <Grid x:Name="LeftGrid" Grid.Column="2" RowDefinitions="*,4,170">
+                <DockPanel Grid.Row="0">
+                <ed:TabBar x:Name="Tabs" DockPanel.Dock="Top" />
+                <Panel x:Name="EditorArea" Background="{StaticResource TsEditorBackground}">
                     <Grid x:Name="BehindCodeLayer" IsHitTestVisible="False" Opacity="0.35" />
                     <ae:TextEditor x:Name="Editor"
                                    Background="Transparent"
@@ -94,6 +110,7 @@
                                    VerticalScrollBarVisibility="Auto"
                                    Padding="6,4,0,0" />
                 </Panel>
+                </DockPanel>
                 <GridSplitter Grid.Row="1" Background="{StaticResource TsBorder}" ResizeDirection="Rows" />
                 <Border Grid.Row="2" Background="#101217">
                     <ae:TextEditor x:Name="ConsoleView"
@@ -107,8 +124,8 @@
                                    VerticalScrollBarVisibility="Auto" />
                 </Border>
             </Grid>
-            <GridSplitter Grid.Column="1" Background="{StaticResource TsBorder}" ResizeDirection="Columns" />
-            <DockPanel x:Name="VisualizerPanel" Grid.Column="2" Background="{StaticResource TsWindowBackground}">
+            <GridSplitter Grid.Column="3" Background="{StaticResource TsBorder}" ResizeDirection="Columns" />
+            <DockPanel x:Name="VisualizerPanel" Grid.Column="4" Background="{StaticResource TsWindowBackground}">
                 <DockPanel DockPanel.Dock="Top" Margin="10,6,8,6">
                     <Button x:Name="AddVisualizerButton" DockPanel.Dock="Right" Content="+ Add" Classes="icon" />
                     <TextBlock Text="VISUALIZERS" Classes="tileTitle" />
@@ -119,4 +136,25 @@
             </DockPanel>
         </Grid>
     </DockPanel>
+
+    <!-- Shown while Tidal boots at launch. GHC itself needs several seconds to start on Windows. -->
+    <Border x:Name="LoadingOverlay" Background="#F214161C" IsVisible="False">
+        <Border.Transitions>
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+            </Transitions>
+        </Border.Transitions>
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Width="360">
+            <Image Source="avares://TidalStudio/Assets/logo.png" Width="120" Height="120" HorizontalAlignment="Center" />
+            <TextBlock Text="TidalStudio" FontSize="26" FontWeight="SemiBold" Foreground="#E6EAF2" HorizontalAlignment="Center" />
+            <TextBlock x:Name="LoadingStage" Text="Starting Tidal…" FontSize="13" Foreground="{StaticResource TsAccent}" HorizontalAlignment="Center" Margin="0,8,0,0" />
+            <ProgressBar x:Name="LoadingProgress" Minimum="0" Maximum="1" Height="4" MinHeight="4"
+                         Foreground="{StaticResource TsAccent}" Background="{StaticResource TsBorder}" />
+            <TextBlock x:Name="LoadingDetail" FontSize="12" Foreground="{StaticResource TsMuted}" HorizontalAlignment="Center"
+                       TextAlignment="Center" TextWrapping="Wrap" />
+            <Button x:Name="LoadingSkip" Content="Continue without waiting  (Esc)" Classes="icon" HorizontalAlignment="Center"
+                    Foreground="{StaticResource TsMuted}" Margin="0,6,0,0" Click="OnSkipLoading" />
+        </StackPanel>
+    </Border>
+    </Panel>
 </Window>

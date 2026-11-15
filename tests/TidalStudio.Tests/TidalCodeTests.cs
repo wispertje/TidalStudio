@@ -126,4 +126,34 @@ public class TidalCodeTests
         Assert.Contains("57130", boot.Text);
         Assert.Contains("d1 = p 1", boot.Text);
     }
+
+    [Fact]
+    public void Set_directory_command_escapes_backslashes_and_quotes() =>
+        Assert.Equal("System.Directory.setCurrentDirectory \"C:\\\\My \\\"Songs\\\"\"",
+            GhciHost.SetDirectoryCommand("C:\\My \"Songs\""));
+
+    [Fact]
+    public void Boot_file_in_working_directory_is_used_when_none_is_next_to_the_file()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "ts-boot-" + Guid.NewGuid().ToString("N"));
+        string work = Path.Combine(root, "work");
+        string songs = Path.Combine(root, "songs");
+        Directory.CreateDirectory(work);
+        Directory.CreateDirectory(songs);
+        try
+        {
+            File.WriteAllText(Path.Combine(work, BootFiles.BootFileName), "-- custom boot");
+            var choice = BootFiles.Choose(null, Path.Combine(songs, "a.tidal"), false, work);
+            Assert.Equal(Path.Combine(work, BootFiles.BootFileName), choice.Path);
+
+            // A boot file next to the document still wins.
+            File.WriteAllText(Path.Combine(songs, BootFiles.BootFileName), "-- song boot tsctx");
+            choice = BootFiles.Choose(null, Path.Combine(songs, "a.tidal"), false, work);
+            Assert.Equal(Path.Combine(songs, BootFiles.BootFileName), choice.Path);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

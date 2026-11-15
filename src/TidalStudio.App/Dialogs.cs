@@ -48,6 +48,31 @@ public static class Dialogs
         return result;
     }
 
+    /// <summary>Asks for a line of text. Returns null when cancelled.</summary>
+    public static async Task<string?> Prompt(Window owner, string title, string message, string initial, string okText = "OK")
+    {
+        string? result = null;
+        var dialog = MakeWindow(title);
+        var box = new TextBox { Text = initial, Margin = new Thickness(0, 0, 0, 16) };
+        var ok = new Button { Content = okText, IsDefault = true, MinWidth = 80 };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 80 };
+        ok.Click += (_, _) => { result = box.Text; dialog.Close(); };
+        cancel.Click += (_, _) => dialog.Close();
+        var panel = (StackPanel)Layout(message, ok, cancel);
+        panel.Children.Insert(1, box);
+        dialog.Content = panel;
+        dialog.Opened += (_, _) =>
+        {
+            box.Focus();
+            // Select the name without its extension, like file managers do.
+            int dot = initial.LastIndexOf('.');
+            box.SelectionStart = 0;
+            box.SelectionEnd = dot > 0 ? dot : initial.Length;
+        };
+        await dialog.ShowDialog(owner);
+        return result;
+    }
+
     private static Window MakeWindow(string title) => new()
     {
         Title = title,
