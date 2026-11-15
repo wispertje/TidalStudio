@@ -39,6 +39,8 @@ public partial class MainWindow : Window
     private bool _closeConfirmed;
     private string? _bootDescription;
     private int _frame;
+    private int _runCount;
+    private string _lastRunLines = "";
 
     // Parameterless constructor for the XAML previewer.
     public MainWindow() : this(new AppServices(), Array.Empty<string>()) { }
@@ -242,6 +244,8 @@ public partial class MainWindow : Window
     /// <summary>Runs whole lines [firstLine, lastLine] (0-based) of the document.</summary>
     private async Task RunRangeAsync(int firstLine, int lastLine)
     {
+        _runCount++;
+        _lastRunLines = $"{firstLine + 1}-{lastLine + 1}";
         var doc = Editor.Document;
         var first = doc.GetLineByNumber(firstLine + 1);
         var last = doc.GetLineByNumber(lastLine + 1);
@@ -299,7 +303,9 @@ public partial class MainWindow : Window
     private void EchoInput(string code)
     {
         var lines = code.Replace("\r\n", "\n").Split('\n');
-        string shown = lines[0].Trim() + (lines.Length > 1 ? $"  … (+{lines.Length - 1} lines)" : "");
+        // Show the first line of actual code rather than a heading comment.
+        string first = lines.Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0 && !l.StartsWith("--", StringComparison.Ordinal)) ?? lines[0].Trim();
+        string shown = first + (lines.Length > 1 ? $"  … ({lines.Length} lines)" : "");
         _console.Add(OutputKind.Input, shown);
     }
 

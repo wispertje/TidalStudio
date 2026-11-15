@@ -61,6 +61,17 @@ public partial class MainWindow
             var unmute = await ToggleMuteAsync("1");
             Log($"unmute 1: success={unmute.Success} {unmute.ErrorText}");
 
+            // Real key events through the editor: they must run code and must not insert newlines.
+            string textBefore = Editor.Document.Text;
+            int runsBefore = _runCount;
+            await SendKeyAsync(12, Avalonia.Input.Key.Enter, Avalonia.Input.KeyModifiers.Shift);
+            Log($"Shift+Enter on line 12: runs +{_runCount - runsBefore}, text unchanged={Editor.Document.Text == textBefore}, last run lines={_lastRunLines}");
+            runsBefore = _runCount;
+            await SendKeyAsync(15, Avalonia.Input.Key.Enter, Avalonia.Input.KeyModifiers.Control);
+            Log($"Ctrl+Enter on line 15: runs +{_runCount - runsBefore}, text unchanged={Editor.Document.Text == textBefore}, last run lines={_lastRunLines}");
+            await SendKeyAsync(1, Avalonia.Input.Key.OemPeriod, Avalonia.Input.KeyModifiers.Control);
+            Log($"Ctrl+. (hush): muted cleared={_muted.Count == 0}");
+
             var bad = await _services.Ghci.EvalAsync("d4 $ s \"bd\" # n (1 +)");
             Log($"deliberate error: success={bad.Success}, errors={bad.Errors.Count}, first line={bad.Errors.FirstOrDefault()?.Line}");
             await HushAsync();
@@ -72,6 +83,24 @@ public partial class MainWindow
         Log("selftest done");
         _dirty = false;
         Close();
+    }
+
+    private async Task SendKeyAsync(int line, Avalonia.Input.Key key, Avalonia.Input.KeyModifiers modifiers)
+    {
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            Editor.Focus();
+            Editor.TextArea.Caret.Line = line;
+            Editor.TextArea.Caret.Column = 3;
+            Editor.TextArea.RaiseEvent(new Avalonia.Input.KeyEventArgs
+            {
+                RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent,
+                Key = key,
+                KeyModifiers = modifiers,
+                Source = Editor.TextArea,
+            });
+        });
+        await Task.Delay(400);
     }
 
     private void Screenshot(string path)
