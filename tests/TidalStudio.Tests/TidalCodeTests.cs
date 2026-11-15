@@ -109,6 +109,15 @@ public class TidalCodeTests
         Assert.Equal(2, errors[1].Line);
     }
 
+    [Theory]
+    [InlineData("ghci> ghci| ghci| [TidalCycles version 1.10.1]", "[TidalCycles version 1.10.1]")]
+    [InlineData("tidal> tidal> #TSREADY#", "#TSREADY#")]
+    [InlineData("Prelude> 42", "42")]
+    [InlineData("plain output", "plain output")]
+    [InlineData("", "")]
+    public void Prompts_are_stripped_from_output(string input, string expected) =>
+        Assert.Equal(expected, GhciHost.StripPrompts(input));
+
     [Fact]
     public void Built_in_boot_file_has_visual_support()
     {

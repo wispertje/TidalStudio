@@ -97,7 +97,8 @@ public sealed partial class GhciHost : IAsyncDisposable
         _ = Task.Run(() => ReadLoop(process, process.StandardOutput, isError: false));
         _ = Task.Run(() => ReadLoop(process, process.StandardError, isError: true));
 
-        var lines = bootText.Replace("\r\n", "\n").Split('\n').ToList();
+        var lines = new List<string> { ":set prompt \"\"", ":set prompt-cont \"\"" };
+        lines.AddRange(bootText.Replace("\r\n", "\n").Split('\n'));
         lines.Add(":set prompt \"\"");
         lines.Add(":set prompt-cont \"\"");
         lines.Add($"Prelude.putStrLn \"{ReadyMarker}\"");
@@ -205,21 +206,25 @@ public sealed partial class GhciHost : IAsyncDisposable
 
     private void HandleLine(string line, bool isError)
     {
-        // A leftover "tidal> " prompt from the boot file can prefix output.
-        while (line.StartsWith("tidal> ", StringComparison.Ordinal)) line = line[7..];
+        // Prompts ("ghci> ", "ghci| ", "tidal> ") are printed without a newline and end up in front of output.
+        line = StripPrompts(line);
 
         if (!isError)
         {
-            if (line == ReadyMarker)
+            if (line.EndsWith(ReadyMarker, StringComparison.Ordinal))
             {
                 _ready?.TrySetResult(true);
                 return;
             }
-            if (line.StartsWith(DoneMarkerPrefix, StringComparison.Ordinal))
+            int done = line.IndexOf(DoneMarkerPrefix, StringComparison.Ordinal);
+            if (done >= 0)
             {
-                if (int.TryParse(line.AsSpan(DoneMarkerPrefix.Length), out int id)) _ = CompleteAsync(id);
+                if (int.TryParse(line.AsSpan(done + DoneMarkerPrefix.Length), out int id)) _ = CompleteAsync(id);
+                string before = line[..done];
+                if (before.Length > 0) Emit(OutputKind.Output, before);
                 return;
             }
+            if (line.Length == 0) return;
         }
 
         if (isError) _pending?.ErrorLines.Add(line);
@@ -238,6 +243,11 @@ public sealed partial class GhciHost : IAsyncDisposable
         bool success = errors.Count == 0 && !pending.ErrorLines.Any(l => l.Contains("error", StringComparison.OrdinalIgnoreCase) || l.Contains("*** Exception", StringComparison.Ordinal));
         pending.Completion.TrySetResult(new EvalResult(success, errors, text));
     }
+
+    [GeneratedRegex(@"^(?:(?:ghci|tidal|Prelude|\*?[A-Z][\w.]*)[>|] ?)+")]
+    private static partial Regex PromptPrefix();
+
+    public static string StripPrompts(string line) => PromptPrefix().Replace(line, "");
 
     [GeneratedRegex(@"^<interactive>:(?:(\d+):(\d+)(?:-\d+)?|\((\d+),(\d+)\)-\(\d+,\d+\)):\s*(error|warning)", RegexOptions.CultureInvariant)]
     private static partial Regex ErrorLocation();

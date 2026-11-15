@@ -66,9 +66,11 @@ public class ClockAndStoreTests
     {
         Assert.Equal(64, new TidalEvent { Note = 4 }.Midi());
         Assert.Equal(64, new TidalEvent { Note = 4, N = 2 }.Midi());
-        Assert.Equal(62, new TidalEvent { N = 2 }.Midi());
-        Assert.Null(new TidalEvent { N = 2 }.Midi(treatNAsPitch: false));
+        Assert.Equal(62, new TidalEvent { N = 2 }.Midi(treatNAsPitch: true));
+        Assert.Null(new TidalEvent { Sound = "hh", N = 2 }.Midi());
+        Assert.Equal(62, new TidalEvent { Sound = "superpiano", N = 2 }.Midi());
         Assert.Equal("bd:3", new TidalEvent { Sound = "bd", N = 3 }.Label);
         Assert.Equal("bd", new TidalEvent { Sound = "bd", N = 0 }.Label);
+        Assert.Equal("superpiano", new TidalEvent { Sound = "superpiano", N = 7 }.Label);
     }
 }

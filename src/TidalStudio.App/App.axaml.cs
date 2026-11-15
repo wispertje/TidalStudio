@@ -15,7 +15,9 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            var services = new Services.AppServices();
+            desktop.MainWindow = new MainWindow(services, desktop.Args ?? []);
+            desktop.ShutdownMode = Avalonia.Controls.ShutdownMode.OnMainWindowClose;
         }
 
         base.OnFrameworkInitializationCompleted();

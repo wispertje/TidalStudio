@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<SyntaxDefinition name="Tidal" extensions=".tidal;.hs" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Comment" foreground="#6E8A6E" fontStyle="italic" />
+  <Color name="Directive" foreground="#C792EA" fontStyle="italic" fontWeight="bold" />
+  <Color name="String" foreground="#E5C07B" />
+  <Color name="MiniRest" foreground="#7F848E" />
+  <Color name="MiniNumber" foreground="#F78C6C" />
+  <Color name="MiniBracket" foreground="#89DDFF" fontWeight="bold" />
+  <Color name="MiniOperator" foreground="#FF9CAC" />
+  <Color name="MiniWord" foreground="#C3E88D" />
+  <Color name="Keyword" foreground="#C792EA" fontWeight="bold" />
+  <Color name="Channel" foreground="#FF5370" fontWeight="bold" />
+  <Color name="Transport" foreground="#F07178" />
+  <Color name="Control" foreground="#82AAFF" />
+  <Color name="Function" foreground="#89DDFF" />
+  <Color name="Number" foreground="#F78C6C" />
+  <Color name="Operator" foreground="#89DDFF" />
+  <Color name="Ghci" foreground="#7F848E" fontWeight="bold" />
+
+  <RuleSet>
+    <!-- inline visual directives, e.g. a comment with _punchcard or _pianoroll -->
+    <Span color="Directive" begin="--\s*_(punchcard|pianoroll|spiral|pitchwheel|scope|spectrum|cycle)\b" />
+    <Span color="Comment" begin="--+(?![!#$%&amp;*+./&lt;=&gt;?@\\^|~:])" />
+    <Span color="Comment" multiline="true" begin="\{-" end="-\}" />
+    <Span color="String" ruleSet="Mini" begin="&quot;" end="&quot;" />
+    <Rule color="Ghci">^\s*:[a-z{}]+</Rule>
+
+    <Keywords color="Keyword">
+      <Word>let</Word><Word>in</Word><Word>do</Word><Word>where</Word><Word>if</Word><Word>then</Word>
+      <Word>else</Word><Word>case</Word><Word>of</Word><Word>import</Word><Word>qualified</Word><Word>as</Word>
+    </Keywords>
+
+    <Rule color="Channel">\b(d(1[0-6]|[1-9])|p)\b</Rule>
+
+    <Keywords color="Transport">
+      <Word>hush</Word><Word>panic</Word><Word>once</Word><Word>asap</Word><Word>solo</Word><Word>unsolo</Word>
+      <Word>mute</Word><Word>unmute</Word><Word>unmuteAll</Word><Word>unsoloAll</Word><Word>only</Word>
+      <Word>setcps</Word><Word>cps</Word><Word>resetCycles</Word><Word>setCycle</Word><Word>xfade</Word>
+      <Word>xfadeIn</Word><Word>jump</Word><Word>jumpIn</Word><Word>clutch</Word><Word>clutchIn</Word>
+      <Word>anticipate</Word><Word>interpolate</Word><Word>wait</Word><Word>mortal</Word><Word>silence</Word>
+    </Keywords>
+
+    <Keywords color="Control">
+      <Word>s</Word><Word>sound</Word><Word>n</Word><Word>note</Word><Word>up</Word><Word>gain</Word><Word>pan</Word>
+      <Word>speed</Word><Word>orbit</Word><Word>room</Word><Word>size</Word><Word>dry</Word><Word>lpf</Word>
+      <Word>hpf</Word><Word>bpf</Word><Word>cutoff</Word><Word>resonance</Word><Word>shape</Word><Word>crush</Word>
+      <Word>coarse</Word><Word>delay</Word><Word>delaytime</Word><Word>delayfeedback</Word><Word>delayfb</Word>
+      <Word>legato</Word><Word>sustain</Word><Word>attack</Word><Word>release</Word><Word>hold</Word>
+      <Word>cut</Word><Word>begin</Word><Word>end</Word><Word>loop</Word><Word>vowel</Word><Word>octave</Word>
+      <Word>lock</Word><Word>amp</Word><Word>velocity</Word><Word>accelerate</Word><Word>squiz</Word>
+      <Word>color</Word><Word>colour</Word><Word>struct</Word>
+    </Keywords>
+
+    <Keywords color="Function">
+      <Word>fast</Word><Word>slow</Word><Word>hurry</Word><Word>every</Word><Word>whenmod</Word><Word>sometimes</Word>
+      <Word>sometimesBy</Word><Word>often</Word><Word>rarely</Word><Word>almostNever</Word><Word>almostAlways</Word>
+      <Word>degrade</Word><Word>degradeBy</Word><Word>rev</Word><Word>jux</Word><Word>juxBy</Word><Word>stack</Word>
+      <Word>cat</Word><Word>fastcat</Word><Word>slowcat</Word><Word>randcat</Word><Word>seqP</Word><Word>seqPLoop</Word>
+      <Word>off</Word><Word>superimpose</Word><Word>layer</Word><Word>chop</Word><Word>striate</Word><Word>slice</Word>
+      <Word>splice</Word><Word>range</Word><Word>rangex</Word><Word>irand</Word><Word>rand</Word><Word>perlin</Word>
+      <Word>sine</Word><Word>cosine</Word><Word>saw</Word><Word>isaw</Word><Word>tri</Word><Word>square</Word>
+      <Word>envL</Word><Word>segment</Word><Word>discretise</Word><Word>euclid</Word><Word>euclidFull</Word>
+      <Word>arp</Word><Word>arpeggiate</Word><Word>scale</Word><Word>toScale</Word><Word>chunk</Word><Word>iter</Word>
+      <Word>palindrome</Word><Word>ply</Word><Word>stut</Word><Word>echo</Word><Word>stutWith</Word><Word>echoWith</Word>
+      <Word>within</Word><Word>whenT</Word><Word>while</Word><Word>fix</Word><Word>unfix</Word><Word>someCycles</Word>
+      <Word>rot</Word><Word>shuffle</Word><Word>scramble</Word><Word>linger</Word><Word>trunc</Word><Word>swingBy</Word>
+      <Word>swing</Word><Word>nudge</Word><Word>inside</Word><Word>outside</Word><Word>loopFirst</Word><Word>mask</Word>
+      <Word>sew</Word><Word>stitch</Word><Word>squeeze</Word><Word>ur</Word><Word>fit</Word><Word>wchoose</Word>
+      <Word>choose</Word><Word>cycleChoose</Word><Word>run</Word><Word>irand</Word><Word>brak</Word><Word>press</Word>
+    </Keywords>
+
+    <Rule color="Number">\b[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?\b</Rule>
+    <Rule color="Operator">[#$|+\-*/&lt;&gt;=.~%:!?@^&amp;\\]+</Rule>
+  </RuleSet>
+
+  <RuleSet name="Mini">
+    <Span begin="\\" end="." />
+    <Rule color="MiniRest">~</Rule>
+    <Rule color="MiniNumber">-?\b[0-9]+(\.[0-9]+)?\b</Rule>
+    <Rule color="MiniBracket">[\[\]&lt;&gt;{}()]</Rule>
+    <Rule color="MiniOperator">[*/!?@:,|.%_]</Rule>
+    <Rule color="MiniWord">[A-Za-z][A-Za-z0-9'_-]*</Rule>
+  </RuleSet>
+</SyntaxDefinition>

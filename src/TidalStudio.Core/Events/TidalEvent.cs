@@ -44,20 +44,22 @@ public sealed class TidalEvent
     public double CycleDuration => Duration * Cps;
 
     /// <summary>
-    /// Pitch as a MIDI note number when the event is pitched (SuperDirt convention: note/n + 60 for synths).
-    /// For sample-based events with only n, n is a sample index, so we only treat n as pitch when there is no note
-    /// and the sound looks like a synth (caller decides via <paramref name="treatNAsPitch"/>).
+    /// Pitch as a MIDI note number (SuperDirt convention: note 0 = MIDI 60). For samples, n picks a sample file
+    /// rather than a pitch, so n only counts as pitch for synths, or always when <paramref name="treatNAsPitch"/> is set.
     /// </summary>
-    public double? Midi(bool treatNAsPitch = true)
+    public double? Midi(bool treatNAsPitch = false)
     {
         if (Note is { } note) return note + 60; // SuperDirt: note defaults to n; note wins when both are set
-        if (treatNAsPitch && N is { } n) return n + 60;
+        if (N is { } n && (treatNAsPitch || IsSynth)) return n + 60;
         return null;
     }
 
     /// <summary>The label used for punchcard rows: sound plus sample number.</summary>
     public string Label => Sound is null ? (Note?.ToString("0.##") ?? "?") :
-        (N is { } n && n != 0 && Note is null ? $"{Sound}:{n:0.##}" : Sound);
+        (N is { } n && n != 0 && Note is null && !IsSynth ? $"{Sound}:{n:0.##}" : Sound);
+
+    /// <summary>SuperDirt synths (superpiano, supersaw, …): for these n is a note, not a sample number.</summary>
+    public bool IsSynth => Sound is { } s && (s.StartsWith("super", StringComparison.Ordinal) || s is "sine" or "saw" or "square" or "tri" or "pulse");
 
     public bool IsActive(double now) => now >= Time && now < End;
 }

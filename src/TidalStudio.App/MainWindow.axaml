@@ -1,9 +1,122 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        xmlns:ae="using:AvaloniaEdit"
         x:Class="TidalStudio.App.MainWindow"
-        Title="TidalStudio.App">
-    Welcome to Avalonia!
+        Title="TidalStudio"
+        Width="1400" Height="900"
+        MinWidth="700" MinHeight="400"
+        Background="{StaticResource TsWindowBackground}">
+    <DockPanel>
+        <Menu DockPanel.Dock="Top" x:Name="MainMenu" Background="{StaticResource TsPanelBackground}">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New" InputGesture="Ctrl+N" Click="OnNew" />
+                <MenuItem Header="_Open…" InputGesture="Ctrl+O" Click="OnOpen" />
+                <MenuItem Header="Open _recent" x:Name="RecentMenu" />
+                <Separator />
+                <MenuItem Header="_Save" InputGesture="Ctrl+S" Click="OnSave" />
+                <MenuItem Header="Save _as…" InputGesture="Ctrl+Shift+S" Click="OnSaveAs" />
+                <Separator />
+                <MenuItem Header="E_xit" Click="OnExit" />
+            </MenuItem>
+            <MenuItem Header="_Tidal">
+                <MenuItem Header="Run _line" InputGesture="Shift+Enter" Click="OnRunLine" />
+                <MenuItem Header="Run _block / selection" InputGesture="Ctrl+Enter" Click="OnRunBlock" />
+                <MenuItem Header="_Hush" InputGesture="Ctrl+Alt+H" Click="OnHush" />
+                <Separator />
+                <MenuItem Header="_Start / restart Tidal" Click="OnRestartTidal" />
+                <MenuItem Header="S_top Tidal" Click="OnStopTidal" />
+                <Separator />
+                <MenuItem Header="Boot file">
+                    <MenuItem Header="Automatic (next to the file, else built-in)" x:Name="BootAutoItem" ToggleType="Radio" GroupName="boot" Click="OnBootAuto" />
+                    <MenuItem Header="Always use the built-in boot file" x:Name="BootBuiltInItem" ToggleType="Radio" GroupName="boot" Click="OnBootBuiltIn" />
+                    <MenuItem Header="Choose a boot file…" x:Name="BootCustomItem" ToggleType="Radio" GroupName="boot" Click="OnBootChoose" />
+                    <Separator />
+                    <MenuItem Header="Write TidalStudio's BootTidal.hs next to this file…" Click="OnInstallBoot" />
+                </MenuItem>
+                <MenuItem Header="Choose ghci…" Click="OnChooseGhci" />
+                <MenuItem Header="Start Tidal when TidalStudio opens" x:Name="AutoStartItem" ToggleType="CheckBox" Click="OnToggleAutoStart" />
+            </MenuItem>
+            <MenuItem Header="_SuperCollider">
+                <MenuItem Header="_Start SuperDirt" Click="OnStartSuperDirt" />
+                <MenuItem Header="S_top SuperDirt" Click="OnStopSuperDirt" />
+                <MenuItem Header="Choose sclang…" Click="OnChooseSclang" />
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="Add visualizer" x:Name="AddVisualizerMenu" />
+                <MenuItem Header="Reset visualizers" Click="OnResetVisualizers" />
+                <MenuItem Header="Show visualizer panel" x:Name="ShowPanelItem" ToggleType="CheckBox" Click="OnTogglePanel" />
+                <Separator />
+                <MenuItem Header="Highlight mini-notation" x:Name="HighlightItem" ToggleType="CheckBox" Click="OnToggleHighlight" />
+                <MenuItem Header="Highlight style">
+                    <MenuItem Header="Background" x:Name="StyleBackgroundItem" ToggleType="Radio" GroupName="hl" Click="OnHighlightStyle" Tag="Background" />
+                    <MenuItem Header="Outline" x:Name="StyleOutlineItem" ToggleType="Radio" GroupName="hl" Click="OnHighlightStyle" Tag="Outline" />
+                    <MenuItem Header="Underline" x:Name="StyleUnderlineItem" ToggleType="Radio" GroupName="hl" Click="OnHighlightStyle" Tag="Underline" />
+                </MenuItem>
+                <MenuItem Header="Inline visuals (-- _punchcard …)" x:Name="InlineItem" ToggleType="CheckBox" Click="OnToggleInline" />
+                <MenuItem Header="Audio capture (scope / spectrum)" x:Name="AudioItem" ToggleType="CheckBox" Click="OnToggleAudio" />
+                <Separator />
+                <MenuItem Header="Line numbers" x:Name="LineNumbersItem" ToggleType="CheckBox" Click="OnToggleLineNumbers" />
+                <MenuItem Header="Word wrap" x:Name="WordWrapItem" ToggleType="CheckBox" Click="OnToggleWordWrap" />
+                <MenuItem Header="Bigger font" InputGesture="Ctrl+OemPlus" Click="OnFontBigger" />
+                <MenuItem Header="Smaller font" InputGesture="Ctrl+OemMinus" Click="OnFontSmaller" />
+                <Separator />
+                <MenuItem Header="Clear console" Click="OnClearConsole" />
+                <MenuItem Header="Open settings file" Click="OnOpenSettingsFile" />
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="Keyboard shortcuts &amp; tips" Click="OnShowHelp" />
+                <MenuItem Header="About TidalStudio" Click="OnAbout" />
+            </MenuItem>
+        </Menu>
+
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource TsPanelBackground}" BorderBrush="{StaticResource TsBorder}" BorderThickness="0,1,0,0" Height="26">
+            <DockPanel>
+                <Ellipse x:Name="StatusDot" Width="8" Height="8" Margin="10,0,0,0" Fill="#8A93A6" VerticalAlignment="Center" />
+                <TextBlock x:Name="StatusTidal" Classes="status" Text="Tidal: stopped" Margin="6,0,10,0" />
+                <TextBlock x:Name="StatusCycle" Classes="status" FontFamily="Cascadia Mono, Consolas, monospace" />
+                <TextBlock x:Name="StatusMuted" Classes="status" Foreground="#FFD166" />
+                <TextBlock x:Name="StatusFile" Classes="status" DockPanel.Dock="Right" />
+                <TextBlock x:Name="StatusAudio" Classes="status" DockPanel.Dock="Right" />
+                <TextBlock x:Name="StatusEvents" Classes="status" DockPanel.Dock="Right" />
+                <TextBlock x:Name="StatusMessage" Classes="status" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+        </Border>
+
+        <Grid x:Name="MainGrid" ColumnDefinitions="*,4,380">
+            <Grid x:Name="LeftGrid" Grid.Column="0" RowDefinitions="*,4,170">
+                <Panel x:Name="EditorArea" Grid.Row="0" Background="{StaticResource TsEditorBackground}">
+                    <Grid x:Name="BehindCodeLayer" IsHitTestVisible="False" Opacity="0.35" />
+                    <ae:TextEditor x:Name="Editor"
+                                   Background="Transparent"
+                                   Foreground="#D8DEE9"
+                                   ShowLineNumbers="True"
+                                   HorizontalScrollBarVisibility="Auto"
+                                   VerticalScrollBarVisibility="Auto"
+                                   Padding="6,4,0,0" />
+                </Panel>
+                <GridSplitter Grid.Row="1" Background="{StaticResource TsBorder}" ResizeDirection="Rows" />
+                <Border Grid.Row="2" Background="#101217">
+                    <ae:TextEditor x:Name="ConsoleView"
+                                   IsReadOnly="True"
+                                   Background="Transparent"
+                                   Foreground="#B8C0CF"
+                                   FontFamily="Cascadia Mono, Consolas, monospace"
+                                   FontSize="12"
+                                   WordWrap="True"
+                                   Padding="8,4,4,4"
+                                   VerticalScrollBarVisibility="Auto" />
+                </Border>
+            </Grid>
+            <GridSplitter Grid.Column="1" Background="{StaticResource TsBorder}" ResizeDirection="Columns" />
+            <DockPanel x:Name="VisualizerPanel" Grid.Column="2" Background="{StaticResource TsWindowBackground}">
+                <DockPanel DockPanel.Dock="Top" Margin="10,6,8,6">
+                    <Button x:Name="AddVisualizerButton" DockPanel.Dock="Right" Content="+ Add" Classes="icon" />
+                    <TextBlock Text="VISUALIZERS" Classes="tileTitle" />
+                </DockPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="VisualizerStack" Margin="8,0,8,8" />
+                </ScrollViewer>
+            </DockPanel>
+        </Grid>
+    </DockPanel>
 </Window>

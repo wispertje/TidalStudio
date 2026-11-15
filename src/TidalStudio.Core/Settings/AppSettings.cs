@@ -40,7 +40,7 @@ public sealed class AppSettings
     public double HighlightOpacity { get; set; } = 0.45;
 
     // Visualizers
-    public List<VisualizerConfig> Visualizers { get; set; } = new();
+    public List<VisualizerConfig> Visualizers { get; set; } = DefaultVisualizers();
     public bool CaptureAudio { get; set; } = true;
     public double VisualizerPanelWidth { get; set; } = 380;
 
@@ -80,7 +80,11 @@ public sealed class AppSettings
     public static string DefaultDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TidalStudio");
 
-    public static string DefaultPath => Path.Combine(DefaultDirectory, "settings.json");
+    /// <summary>settings.json in %APPDATA%\TidalStudio, or the file named by TIDALSTUDIO_SETTINGS.</summary>
+    public static string DefaultPath =>
+        Environment.GetEnvironmentVariable("TIDALSTUDIO_SETTINGS") is { Length: > 0 } custom
+            ? custom
+            : Path.Combine(DefaultDirectory, "settings.json");
 
     public static AppSettings Load(string? path = null)
     {
@@ -96,7 +100,6 @@ public sealed class AppSettings
         {
             settings = new AppSettings();
         }
-        if (settings.Visualizers.Count == 0 && !File.Exists(path)) settings.Visualizers = DefaultVisualizers();
         while (settings.PatternColors.Count < DefaultPalette.Length) settings.PatternColors.Add(DefaultPalette[settings.PatternColors.Count]);
         return settings;
     }
