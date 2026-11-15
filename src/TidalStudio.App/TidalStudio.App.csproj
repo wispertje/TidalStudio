@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
@@ -6,6 +6,12 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>TidalStudio</AssemblyName>
     <RootNamespace>TidalStudio.App</RootNamespace>
+    <Version>0.1.0</Version>
+    <!-- dotnet publish -c Release -r win-x64 produces one self-contained TidalStudio.exe -->
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType Condition="'$(Configuration)' == 'Release'">embedded</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.6" />
@@ -19,4 +25,8 @@
     <EmbeddedResource Include="Resources\**\*" />
     <ProjectReference Include="..\TidalStudio.Core\TidalStudio.Core.csproj" />
   </ItemGroup>
+  <!-- SkiaSharp/HarfBuzz ship ~100 MB of native .pdb files; they are not needed to run the app. -->
+  <Target Name="RemoveNativePdbs" AfterTargets="Publish">
+    <Delete Files="$(PublishDir)libSkiaSharp.pdb;$(PublishDir)libHarfBuzzSharp.pdb" />
+  </Target>
 </Project>
