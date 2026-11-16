@@ -74,6 +74,23 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
 - **Loading screen** while Tidal boots at launch. GHC itself needs about 5 seconds to start on Windows (even
   `ghc -e "print 1"` takes that long), so this can't be made much faster; the editor is usable as soon as the screen
   closes, or press Esc to skip it.
+- **Tidepool sample synth** (Synth ▸ Tidepool sample synth…, `Ctrl+Shift+Y`): design a sound and save it as samples
+  SuperDirt can play, so it works in Tidal as `s "name"`.
+  - Three wavetable oscillators (Basic, PWM, Harmonics, Formant, Sync, Digital, Fold, Noise) with position morphing,
+    octave/semi/fine, unison up to 9 voices with detune and stereo spread, and a warp mode each (bend, sync, fold,
+    crush).
+  - A resonant filter (low/high/band-pass, notch) with drive, envelope and key tracking; amp, filter and mod
+    envelopes; two LFOs; drive, chorus, ping-pong delay and reverb. The mod envelope and LFOs can drive pitch,
+    wavetable position, cutoff, volume, pan or warp.
+  - Factory presets (leads, pads, basses, a bell, a kick and a hat), Randomise, auto-preview while you turn knobs,
+    and a keyboard to audition any note.
+  - **Save to SuperDirt** renders each note in the Notes list (Tidal note names; `c5` is note 0) to a 24-bit WAV in
+    `<samples folder>/<name>/`. With several notes, `n` picks them in order: `s "pad" # n "0 .. 5"`. With one note,
+    transpose with `# note`. Your sound is also kept as a preset (★ in the list) to tweak later.
+  - After saving, SuperDirt loads the new sound: one started by TidalStudio loads it immediately; one started
+    elsewhere (e.g. the SuperCollider IDE) is restarted, after which TidalStudio runs it (option "Restart SuperDirt
+    after saving"; turn it off to get the one-line load command instead). There is also a button that makes your `startup.scd` load your samples folder at every start (it
+    uncomments the line if it is there, and keeps a backup as `startup.scd.bak`).
 - **SuperDirt starts automatically**: at launch and whenever you run code, TidalStudio checks that SuperDirt answers
   (the same handshake Tidal uses) and starts SuperCollider + SuperDirt if it doesn't. The status bar shows
   SuperDirt's state. If your `startup.scd` already starts SuperDirt, that is used as is. A SuperDirt started by

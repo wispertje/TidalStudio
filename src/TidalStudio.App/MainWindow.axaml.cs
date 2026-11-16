@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private string _lastRunLines = "";
     private Stopwatch? _loadingWatch;
     private volatile bool _tidalPrinted;
+    /// <summary>--selftest with --allow-restart: let the synth check restart the real SuperCollider.</summary>
+    private bool _selfTestAllowRestart;
 
     // Parameterless constructor for the XAML previewer.
     public MainWindow() : this(new AppServices(), Array.Empty<string>()) { }
@@ -108,6 +110,7 @@ public partial class MainWindow : Window
         _services.Ticker.Subscribe(OnFrame);
 
         int selfTest = Array.IndexOf(args, "--selftest");
+        _selfTestAllowRestart = selfTest >= 0 && args.Contains("--allow-restart");
         string? selfTestDir = selfTest >= 0 && selfTest + 1 < args.Length ? args[selfTest + 1] : null;
 
         string? argFile = args.FirstOrDefault(File.Exists);
@@ -261,6 +264,11 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
             HideLoading();
+        }
+        else if (ctrl && shift && !alt && e.Key == Key.Y)
+        {
+            e.Handled = true;
+            OnOpenSynth(this, new RoutedEventArgs());
         }
         else if (ctrl && shift && !alt && e.Key == Key.E)
         {
@@ -852,6 +860,7 @@ public partial class MainWindow : Window
             if (!await ConfirmDiscardAsync(tab)) return;
         _settings.OpenFiles = _tabs.Select(t => t.Path).OfType<string>().ToList();
         if (CurrentPath is not null) _settings.LastFile = CurrentPath;
+        _synth?.Close(); // saves the synth's current patch into the settings
         _closeConfirmed = true;
         SaveWindowState();
         try { _settings.Save(); } catch (Exception) { }
@@ -1177,6 +1186,20 @@ public partial class MainWindow : Window
         await StartSuperDirtAsync(interactive: true);
     }
 
+    private Synth.SynthWindow? _synth;
+
+    private void OnOpenSynth(object? sender, RoutedEventArgs e)
+    {
+        if (_synth is { } open)
+        {
+            open.Activate();
+            return;
+        }
+        _synth = new Synth.SynthWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _synth.Closed += (_, _) => _synth = null;
+        _synth.Show();
+    }
+
     private void OnToggleAutoDirt(object? sender, RoutedEventArgs e)
     {
         _settings.AutoStartSuperDirt = !_settings.AutoStartSuperDirt;
@@ -1282,6 +1305,50 @@ public partial class MainWindow : Window
         _console.Add(OutputKind.Error, _services.SuperDirt.IsRunning
             ? "SuperDirt did not answer within 2 minutes. Check the [sc] lines above for errors."
             : "SuperCollider stopped before SuperDirt was ready. Check the [sc] lines above for errors.");
+    }
+
+    /// <summary>
+    /// Restarts SuperCollider + SuperDirt (with the user's startup file) and makes sure <paramref name="soundFolder"/>
+    /// is loaded. Used after Tidepool saves a sound. A SuperCollider started elsewhere (e.g. the IDE) is stopped and
+    /// TidalStudio runs it from then on, so later sounds can be loaded without a restart.
+    /// </summary>
+    internal async Task<(bool Ok, string Message)> RestartSuperDirtAsync(string soundFolder)
+    {
+        if (_dirtState == DirtState.Starting) return (false, "SuperDirt is still starting; save again when it is ready.");
+        if (ToolLocator.FindSclang(_settings.SclangPath) is null)
+            return (false, "Could not find SuperCollider's sclang to restart it (SuperCollider ▸ Choose sclang…).");
+
+        _console.Add(OutputKind.Info, "Restarting SuperCollider so SuperDirt loads the new samples…");
+        if (_services.SuperDirt.IsRunning) await _services.SuperDirt.StopAsync();
+        bool external = false;
+        foreach (var name in new[] { "sclang", "scsynth" })
+        {
+            foreach (var process in Process.GetProcessesByName(name))
+            {
+                external = true;
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(3000);
+                }
+                catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+                finally { process.Dispose(); }
+            }
+        }
+        SetDirtState(DirtState.NotRunning);
+        await Task.Delay(300); // let the ports close
+
+        await StartSuperDirtAsync(interactive: false);
+        if (_dirtState != DirtState.Running) return (false, "SuperDirt did not come back up; see the console for SuperCollider's messages.");
+
+        // The startup file loads the folder itself when it is set up to; otherwise load it into the fresh SuperDirt.
+        string? startup = Core.Completion.SampleLibrary.StartupScriptPath();
+        bool atStartup = startup is not null && StartupScript.LoadsFolder(await File.ReadAllTextAsync(startup), soundFolder);
+        if (!atStartup && !_services.SuperDirt.TrySendCode($"~dirt.loadSoundFiles(\"{soundFolder.Replace('\\', '/')}\");"))
+            return (false, "SuperDirt restarted, but the new sound could not be loaded into it.");
+        return (true, external
+            ? "SuperCollider restarted with the new sound. (The SuperCollider you had open was stopped; TidalStudio runs it now, so the next sounds load without a restart.)"
+            : "SuperDirt restarted with the new sound — play it now.");
     }
 
     private async void OnStopSuperDirt(object? sender, RoutedEventArgs e) => await _services.SuperDirt.StopAsync();

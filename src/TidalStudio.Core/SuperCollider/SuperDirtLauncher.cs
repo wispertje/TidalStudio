@@ -96,6 +96,26 @@ public sealed class SuperDirtLauncher : IAsyncDisposable
             Output?.Invoke(new OutputLine(OutputKind.Info, $"Your SuperCollider startup file starts SuperDirt, so it is used as is: {startup}"));
     }
 
+    /// <summary>
+    /// Runs SuperCollider code in the sclang this launcher started (sclang executes stdin input on a form feed).
+    /// Returns false when TidalStudio didn't start SuperCollider itself.
+    /// </summary>
+    public bool TrySendCode(string code)
+    {
+        var process = _process;
+        if (process is null || process.HasExited) return false;
+        try
+        {
+            process.StandardInput.Write(code + "\x0c");
+            process.StandardInput.Flush();
+            return true;
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     private static string SafeRead(string path)
     {
         try { return File.ReadAllText(path); }

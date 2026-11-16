@@ -52,6 +52,9 @@
                 <MenuItem Header="Choose sclang…" Click="OnChooseSclang" />
                 <MenuItem Header="Start SuperDirt automatically when it is not running" x:Name="AutoDirtItem" ToggleType="CheckBox" Click="OnToggleAutoDirt" />
             </MenuItem>
+            <MenuItem Header="Sy_nth">
+                <MenuItem Header="Tidepool sample synth…" InputGesture="Ctrl+Shift+Y" Click="OnOpenSynth" />
+            </MenuItem>
             <MenuItem Header="_View">
                 <MenuItem Header="Add visualizer" x:Name="AddVisualizerMenu" />
                 <MenuItem Header="Reset visualizers" Click="OnResetVisualizers" />

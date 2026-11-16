@@ -78,6 +78,7 @@ public partial class MainWindow
             await HushAsync();
 
             await RunEditorChecksAsync(Log, outDir);
+            if (_settings.SamplesFolder is not null) await RunSynthChecksAsync(Log, outDir);
         }
         else
         {
@@ -175,6 +176,43 @@ public partial class MainWindow
             bool closed = await CloseTabAsync(tabA);
             log($"tabs: close a (unmodified, no prompt): closed={closed}, count={_tabs.Count}, active={_active?.DisplayName}");
         });
+    }
+
+    /// <summary>Tidepool: open the window, screenshot it, and save the sound into the samples folder (no playback).</summary>
+    private async Task RunSynthChecksAsync(Action<string> log, string outDir)
+    {
+        var window = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            // Only restart a real SuperCollider when asked (--allow-restart): it stops whatever SuperCollider is running.
+            Func<string, Task<(bool Ok, string Message)>> restart = _selfTestAllowRestart
+                ? RestartSuperDirtAsync
+                : folder => Task.FromResult((false, $"(self-test: SuperDirt restart skipped for {Path.GetFileName(folder)})"));
+            var w = new Synth.SynthWindow(_services, () => _completionCatalog.InvalidateSamples(), (_, text) => log("[synth] " + text), restart);
+            w.Show();
+            return w;
+        });
+        await Task.Delay(1200);
+        await Dispatcher.UIThread.InvokeAsync(() => Render(window, Path.Combine(outDir, "synth.png")));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        await Dispatcher.UIThread.InvokeAsync(window.SaveAsync);
+        log($"synth: save took {watch.ElapsedMilliseconds} ms; status: {await Dispatcher.UIThread.InvokeAsync(() => window.StatusText)}");
+        string folder = Path.Combine(_settings.SamplesFolder!, "sawlead"); // the default patch is the Supersaw lead
+        if (Directory.Exists(folder))
+            foreach (var f in Directory.GetFiles(folder))
+                log($"synth: wrote {Path.GetFileName(f)} ({new FileInfo(f).Length / 1024} KB)");
+        else log($"synth: nothing written to {folder}");
+        await Dispatcher.UIThread.InvokeAsync(() => Render(window, Path.Combine(outDir, "synth-saved.png")));
+        await Dispatcher.UIThread.InvokeAsync(window.Close);
+
+        if (_selfTestAllowRestart)
+        {
+            // Ask SuperDirt itself how many samples it has under the new name (proves the restart and the load).
+            string answer = Path.Combine(outDir, "superdirt-buffers.txt").Replace('\\', '/');
+            bool sent = _services.SuperDirt.TrySendCode(
+                $"File.use(\"{answer}\", \"w\", {{ |f| f.write((~dirt.soundLibrary.buffers['sawlead'] ? []).size.asString) }});");
+            for (int i = 0; i < 20 && !File.Exists(answer); i++) await Task.Delay(250);
+            log($"synth: SuperDirt state={_dirtState}, code sent={sent}, buffers loaded for sawlead = {(File.Exists(answer) ? File.ReadAllText(answer) : "(no answer)")}");
+        }
     }
 
     private string LastLine(int fromEnd)

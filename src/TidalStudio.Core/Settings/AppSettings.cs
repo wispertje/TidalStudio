@@ -27,6 +27,12 @@ public sealed class AppSettings
     public bool StartTidalOnLaunch { get; set; } = true;
     /// <summary>Start SuperCollider + SuperDirt when they are not running (at launch and when code is run).</summary>
     public bool AutoStartSuperDirt { get; set; } = true;
+    /// <summary>Where Tidepool saves sample folders (default: Music\samples).</summary>
+    public string? SamplesFolder { get; set; }
+    /// <summary>The synth patch that was open last.</summary>
+    public string? SynthPatchJson { get; set; }
+    /// <summary>After Tidepool saves, make SuperDirt load the sound (restarting a SuperCollider TidalStudio didn't start).</summary>
+    public bool SynthRestartOnSave { get; set; } = true;
 
     // Editor
     public double FontSize { get; set; } = 15;
