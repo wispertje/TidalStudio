@@ -27,9 +27,10 @@ public sealed class SynthWindow : Window
     private static readonly Color EnvColor = Color.Parse("#60A5FA");
     private static readonly Color ModColor = Color.Parse("#F472B6");
     private static readonly Color FxColor = Color.Parse("#34D399");
+    internal static readonly Color FxAccent = FxColor;
     private static readonly IBrush PanelBrush = new SolidColorBrush(Color.Parse("#1A1D24"));
-    private static readonly IBrush BorderBrush2 = new SolidColorBrush(Color.Parse("#2A2F3A"));
-    private static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#8A93A6"));
+    internal static readonly IBrush BorderBrush2 = new SolidColorBrush(Color.Parse("#2A2F3A"));
+    internal static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#8A93A6"));
 
     private readonly AppServices _services;
     private readonly AppSettings _settings;
@@ -157,6 +158,7 @@ public sealed class SynthWindow : Window
         top.Children.Add(Gap(8));
         top.Children.Add(save);
         top.Children.Add(_restartOnSave);
+        top.Children.Add(ExampleButton(this, "01-tidepool-synth.tidal", "how to play Tidepool samples: n, note, chords, arpeggios, basses, effects"));
 
         // Bottom: waveform + keyboard, then status.
         _keys.NotePressed += midi => { _lastKey = midi; Preview(midi); };
@@ -207,35 +209,73 @@ public sealed class SynthWindow : Window
     private void RebuildSections()
     {
         _refreshers.Clear();
+        _sectionMap.Clear();
         var rows = new StackPanel { Margin = new Thickness(12, 0, 12, 0), Spacing = 10 };
+
+        // Schematic of how the parts are connected; click a block to jump to its controls.
+        var flow = new SignalFlowView(() => _patch);
+        flow.BlockClicked += key =>
+        {
+            if (!_sectionMap.TryGetValue(key.StartsWith("fx-", StringComparison.Ordinal) ? "fx" : key, out var target)) return;
+            target.BringIntoView();
+            Flash(target);
+        };
+        _refreshers.Add(flow.InvalidateVisual);
+        var flowToggle = new CheckBox { Content = "SIGNAL FLOW", FontSize = 11, FontWeight = FontWeight.SemiBold, IsChecked = _settings.SynthShowSignalFlow, Foreground = MutedBrush };
+        ToolTip.SetTip(flowToggle, "Show how the oscillators, filter, envelopes, LFOs and effects are connected. Click a block to jump to its controls.");
+        flow.IsVisible = _settings.SynthShowSignalFlow;
+        flowToggle.IsCheckedChanged += (_, _) => flow.IsVisible = _settings.SynthShowSignalFlow = flowToggle.IsChecked == true;
+        var flowPanel = new StackPanel { Spacing = 4 };
+        flowPanel.Children.Add(flowToggle);
+        flowPanel.Children.Add(flow);
+        rows.Children.Add(flowPanel);
 
         var oscRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,10,*,10,*") };
         for (int i = 0; i < 3; i++)
         {
-            var section = OscSection(i);
+            var section = Map($"osc{i}", OscSection(i));
             Grid.SetColumn(section, i * 2);
             oscRow.Children.Add(section);
         }
         rows.Children.Add(oscRow);
 
         var row2 = new Grid { ColumnDefinitions = new ColumnDefinitions("1.3*,10,*,10,*,10,1.2*") };
-        Place(row2, FilterSection(), 0);
-        Place(row2, EnvSection("FILTER ENVELOPE", () => _patch.FilterEnvelope, FilterColor), 2);
-        Place(row2, EnvSection("AMP ENVELOPE", () => _patch.AmpEnvelope, EnvColor), 4);
-        Place(row2, ModEnvSection(), 6);
+        Place(row2, Map("filter", FilterSection()), 0);
+        Place(row2, Map("fenv", EnvSection("FILTER ENVELOPE", () => _patch.FilterEnvelope, FilterColor)), 2);
+        Place(row2, Map("aenv", EnvSection("AMP ENVELOPE", () => _patch.AmpEnvelope, EnvColor)), 4);
+        Place(row2, Map("menv", ModEnvSection()), 6);
         rows.Children.Add(row2);
 
         var row3 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,10,*,10,1.6*,10,*") };
-        Place(row3, LfoSection("LFO 1", () => _patch.Lfo1), 0);
-        Place(row3, LfoSection("LFO 2", () => _patch.Lfo2), 2);
-        Place(row3, FxSection(), 4);
-        Place(row3, OutputSection(), 6);
+        Place(row3, Map("lfo1", LfoSection("LFO 1", () => _patch.Lfo1)), 0);
+        Place(row3, Map("lfo2", LfoSection("LFO 2", () => _patch.Lfo2)), 2);
+        Place(row3, Map("fx", FxSection()), 4);
+        var output = Map("out", OutputSection());
+        _sectionMap["amp"] = output;
+        Place(row3, output, 6);
         rows.Children.Add(row3);
 
         _sections.Content = rows;
         _name.Text = _patch.Name;
         _notes.Text = _patch.Notes;
         UpdateKeyboardMarks();
+    }
+
+    private readonly Dictionary<string, Control> _sectionMap = new();
+
+    private Control Map(string key, Control section)
+    {
+        _sectionMap[key] = section;
+        return section;
+    }
+
+    /// <summary>Briefly highlights a section (after jumping to it from the signal flow).</summary>
+    private static void Flash(Control section)
+    {
+        if (section is not Border border) return;
+        var original = border.Background;
+        border.Background = new SolidColorBrush(Color.Parse("#262B36"));
+        DispatcherTimer.RunOnce(() => border.Background = original, TimeSpan.FromMilliseconds(450));
     }
 
     private static void Place(Grid grid, Control child, int column)
@@ -400,10 +440,10 @@ public sealed class SynthWindow : Window
 
     // ------------------------------------------------------------------ control helpers
 
-    private static string Percent(double v) => $"{v * 100:0}%";
-    private static string Hz(double v) => v >= 1000 ? $"{v / 1000:0.0} kHz" : $"{v:0} Hz";
-    private static string Seconds(double v) => v < 1 ? $"{v * 1000:0} ms" : $"{v:0.00} s";
-    private static string PanText(double v) => Math.Abs(v) < 0.01 ? "C" : v < 0 ? $"L{-v * 100:0}" : $"R{v * 100:0}";
+    internal static string Percent(double v) => $"{v * 100:0}%";
+    internal static string Hz(double v) => v >= 1000 ? $"{v / 1000:0.0} kHz" : $"{v:0} Hz";
+    internal static string Seconds(double v) => v < 1 ? $"{v * 1000:0} ms" : $"{v:0.00} s";
+    internal static string PanText(double v) => Math.Abs(v) < 0.01 ? "C" : v < 0 ? $"L{-v * 100:0}" : $"R{v * 100:0}";
 
     private Knob K(string label, double min, double max, double def, Func<double> get, Action<double> set,
         Func<double, string>? format = null, bool log = false, double curve = 1, double step = 0, bool bipolar = false, Color? accent = null)
@@ -435,7 +475,7 @@ public sealed class SynthWindow : Window
         return combo;
     }
 
-    private static Control KnobRow(params Control[] children)
+    internal static Control KnobRow(params Control[] children)
     {
         var row = new WrapPanel { Orientation = Orientation.Horizontal };
         foreach (var c in children)
@@ -446,7 +486,7 @@ public sealed class SynthWindow : Window
         return row;
     }
 
-    private static Control Labelled(string label, Control control, bool vertical = false)
+    internal static Control Labelled(string label, Control control, bool vertical = false)
     {
         var text = new TextBlock { Text = label, FontSize = 11, Foreground = MutedBrush, VerticalAlignment = VerticalAlignment.Center };
         var panel = new StackPanel
@@ -461,9 +501,9 @@ public sealed class SynthWindow : Window
         return panel;
     }
 
-    private static Control Gap(double width) => new Border { Width = width };
+    internal static Control Gap(double width) => new Border { Width = width };
 
-    private static Border Panel(string? title, Control body, Color accent)
+    internal static Border Panel(string? title, Control body, Color accent)
     {
         var content = new StackPanel { Spacing = 6 };
         if (title is not null)
@@ -486,14 +526,30 @@ public sealed class SynthWindow : Window
         };
     }
 
-    private static Button SmallButton(string text, string tip)
+    /// <summary>Opens a built-in example script in the main window (set by the main window).</summary>
+    internal static Action<string>? OpenExampleScript { get; set; }
+
+    /// <summary>"Example script" button: opens the script in a new tab of the main window.</summary>
+    internal static Button ExampleButton(Window owner, string fileName, string what)
+    {
+        var button = SmallButton("📄 Example script", $"Open an example script in the editor: {what}");
+        button.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        button.Click += (_, _) =>
+        {
+            if (OpenExampleScript is { } open) open(fileName);
+            else _ = Dialogs.ShowMessage(owner, "Example script", TidalStudio.Core.Synth.ExampleScripts.Read(fileName));
+        };
+        return button;
+    }
+
+    internal static Button SmallButton(string text, string tip)
     {
         var b = new Button { Content = text, Padding = new Thickness(8, 3), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
         ToolTip.SetTip(b, tip);
         return b;
     }
 
-    private static Button AccentButton(string text, string tip)
+    internal static Button AccentButton(string text, string tip)
     {
         var b = SmallButton(text, tip);
         b.FontWeight = FontWeight.SemiBold;
@@ -586,7 +642,12 @@ public sealed class SynthWindow : Window
 
     private void RefreshPresetList()
     {
-        var items = SynthPresets.All.Select(p => p.Name).ToList();
+        var items = new List<string>();
+        foreach (var (category, presets) in SynthPresets.Groups)
+        {
+            if (items.Count > 0) items.Add($"— {category.ToLowerInvariant()} —");
+            items.AddRange(presets.Select(p => p.Name));
+        }
         if (Directory.Exists(UserPresetFolder))
         {
             var mine = Directory.EnumerateFiles(UserPresetFolder, "*.json").Select(Path.GetFileNameWithoutExtension).OfType<string>().OrderBy(n => n).ToList();
@@ -718,60 +779,10 @@ public sealed class SynthWindow : Window
     /// <summary>After saving: load the sound into SuperDirt now if possible, and say whether it loads at startup.</summary>
     private async Task ReportSuperDirtAsync(string folder, string name, string saved)
     {
-        string scPath = folder.Replace('\\', '/');
-        string loadCode = $"~dirt.loadSoundFiles(\"{scPath}\");";
-        var messages = new List<string> { saved };
-        var actions = new List<Control>();
-
-        // Now: TidalStudio's own SuperCollider can be told to load it directly (no interruption). One started
-        // elsewhere can't be reached, so restart SuperCollider (if allowed), which also makes it TidalStudio's own.
-        if (_services.SuperDirt.IsRunning && _services.SuperDirt.TrySendCode(loadCode))
-            messages.Add("Loaded into SuperDirt — you can play it now.");
-        else if (_restartOnSave.IsChecked == true)
-        {
-            SetStatus($"{saved}  Restarting SuperCollider so SuperDirt loads it…");
-            var (_, message) = await _restartSuperDirt(folder);
-            messages.Add(message);
-        }
-        else if (await SuperDirtProbe.IsRunningAsync())
-        {
-            messages.Add("To use it right away, run this in SuperCollider (or restart SuperDirt):");
-            var copy = SmallButton("Copy load command", loadCode);
-            copy.Click += async (_, _) =>
-            {
-                if (Clipboard is { } clipboard) await clipboard.SetTextAsync(loadCode);
-                copy.Content = "Copied ✓";
-            };
-            actions.Add(copy);
-        }
-
-        // Later: does startup.scd load this folder?
-        string? startup = SampleLibrary.StartupScriptPath();
-        string script = startup is not null && File.Exists(startup) ? await File.ReadAllTextAsync(startup) : "";
-        if (startup is not null && StartupScript.LoadsFolder(script, folder))
-            messages.Add("SuperDirt also loads it at every start.");
-        else if (startup is not null && StartupScript.AddSamplesFolder(script, SamplesRoot) is { } edited)
-        {
-            messages.Add("SuperDirt doesn't load your samples folder at startup yet.");
-            var add = SmallButton("Load my samples at startup", $"Adds {StartupScript.LoadLine(SamplesRoot)} to {startup} (a backup is kept as startup.scd.bak)");
-            add.Click += async (_, _) =>
-            {
-                try
-                {
-                    File.Copy(startup, startup + ".bak", overwrite: true);
-                    await File.WriteAllTextAsync(startup, edited);
-                    add.Content = "Added to startup.scd ✓";
-                    add.IsEnabled = false;
-                    _samplesChanged();
-                    _log(OutputKind.Info, $"Tidepool: {startup} now loads {SamplesRoot} (backup: startup.scd.bak)");
-                }
-                catch (Exception e) { SetStatus($"Could not edit {startup}: {e.Message}"); }
-            };
-            actions.Add(add);
-        }
-        else
-            messages.Add($"To load it at every start, add this to your SuperCollider startup file: {StartupScript.LoadLine(SamplesRoot)}");
-
+        var reporter = new SaveReporter(_services, _restartSuperDirt, _samplesChanged, _log);
+        var (messages, actions) = await reporter.ReportAsync(this, new[] { folder }, SamplesRoot, _restartOnSave.IsChecked == true,
+            text => SetStatus($"{saved}  {text}"));
+        messages.Insert(0, saved);
         SetStatus(string.Join("  ", messages), actions.ToArray());
     }
 }

@@ -33,6 +33,17 @@ public sealed class AppSettings
     public string? SynthPatchJson { get; set; }
     /// <summary>After Tidepool saves, make SuperDirt load the sound (restarting a SuperCollider TidalStudio didn't start).</summary>
     public bool SynthRestartOnSave { get; set; } = true;
+    public bool SynthShowSignalFlow { get; set; } = true;
+    /// <summary>The drum kit that was open last in Tidepool Drums.</summary>
+    public string? DrumKitJson { get; set; }
+    /// <summary>Also save every drum kit as one folder (s "kit" # n 0..).</summary>
+    public bool DrumSaveCombined { get; set; } = true;
+    /// <summary>The bassline box that was open last in Tidepool Acid.</summary>
+    public string? AcidBoxJson { get; set; }
+    /// <summary>The FM patch that was open last in Tidepool FM.</summary>
+    public string? FmPatchJson { get; set; }
+    /// <summary>The VJ screen's scenes, effects and code display.</summary>
+    public TidalStudio.Core.Vj.VjOptions Vj { get; set; } = new();
 
     // Editor
     public double FontSize { get; set; } = 15;

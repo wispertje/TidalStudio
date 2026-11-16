@@ -311,7 +311,7 @@ public static class SynthEngine
 
     // ------------------------------------------------------------------ effects
 
-    private static void ApplyFx(FxSettings fx, int sr, float[] left, float[] right)
+    internal static void ApplyFx(FxSettings fx, int sr, float[] left, float[] right)
     {
         if (fx.Drive > 0)
         {
@@ -444,7 +444,7 @@ public static class SynthEngine
     // ------------------------------------------------------------------ finishing
 
     /// <summary>Drops trailing silence (below -70 dB), keeping at least the held part.</summary>
-    private static int TrimLength(float[] left, float[] right, int minLength)
+    internal static int TrimLength(float[] left, float[] right, int minLength)
     {
         const float threshold = 0.0003f;
         float peak = 0;
@@ -455,7 +455,7 @@ public static class SynthEngine
         return Math.Min(left.Length, last + 1);
     }
 
-    private static void FadeOut(float[] left, float[] right, int samples)
+    internal static void FadeOut(float[] left, float[] right, int samples)
     {
         samples = Math.Min(samples, left.Length);
         for (int i = 0; i < samples; i++)
@@ -466,7 +466,7 @@ public static class SynthEngine
         }
     }
 
-    private static void Normalize(float[] left, float[] right, double target)
+    internal static void Normalize(float[] left, float[] right, double target)
     {
         float peak = 0;
         for (int i = 0; i < left.Length; i++) peak = Math.Max(peak, Math.Max(Math.Abs(left[i]), Math.Abs(right[i])));
@@ -475,7 +475,7 @@ public static class SynthEngine
     }
 
     /// <summary>Scales and hard-limits to -1..1 (never writes NaN or clipped values).</summary>
-    private static void Scale(float[] left, float[] right, double factor)
+    internal static void Scale(float[] left, float[] right, double factor)
     {
         for (int i = 0; i < left.Length; i++)
         {

@@ -1,0 +1,67 @@
+-- ============================================================================
+-- Tidepool Acid (Synth ▸ Tidepool Acid) — how to play the loops it makes
+-- ============================================================================
+-- Run a block: put the cursor in it and press Ctrl+Enter.  Stop everything: Ctrl+Alt+H.
+--
+-- How the loops are stored
+--   Every pattern slot (A, B, C …) becomes one seamless loop in ONE sound:
+--     s "acidloop" # n 0 = pattern A,  n 1 = pattern B,  …
+--   A loop lasts exactly its steps at the box's BPM: 16 steps = one bar = one cycle,
+--   32 steps = two cycles.
+--   Two ways to keep a loop in time:
+--   * the same tempo as the box (setcps (bpm/60/4)): the loop sounds exactly as rendered
+--   * loopAt: stretches the loop to the cycle at ANY tempo (by changing its speed, so the
+--     pitch moves a little when the tempos differ)
+--
+-- Change "acidloop" to your box's name.
+
+setcps (130/60/4)
+
+-- 1. At the box's tempo: play the sample once per cycle
+d1 $ s "acidloop" # n 0
+
+-- 2. Any tempo: loopAt + chop keeps it locked to the cycle
+--    (chop cuts it into 16 pieces so it stays in time even when patterns change)
+d1 $ loopAt 1 $ chop 16 $ s "acidloop" # n 0
+
+-- 3. A 32-step pattern lasts two cycles
+d1 $ loopAt 2 $ chop 32 $ s "acidloop" # n 6
+
+-- 4. Switch patterns every bar (A A B A, …)
+d1 $ loopAt 1 $ chop 16 $ s "acidloop" # n "<0 0 1 0 2 2 3 4>"
+
+-- 5. Rearrange the steps: splice plays slice numbers in any order
+d1 $ splice 16 "0 1 2 3 4 5 6 7 0 1 2 3 12 13 14 15" $ s "acidloop" # n 0
+
+-- 6. Stutters and variations without touching the box
+d1 $ sometimesBy 0.25 (echo 3 (1/16) 0.5) $ loopAt 1 $ chop 16 $ s "acidloop" # n 1
+
+-- … play the loop backwards every fourth bar
+d1 $ every 4 rev $ loopAt 1 $ chop 16 $ s "acidloop" # n 1
+
+-- 7. The classic acid move: sweep a filter over the loop by hand or with an LFO
+d1 $ loopAt 1 $ chop 16 $ s "acidloop" # n 0
+   # lpf (range 300 4000 $ slow 16 sine) # resonance 0.15
+
+-- 8. More space: reverb and delay in SuperDirt (on its own orbit, so the drums stay dry).
+--    lock 1 makes delaytime count in cycles: 3/16 = a dotted eighth.
+d1 $ loopAt 1 $ chop 16 $ s "acidloop" # n 2
+   # room 0.25 # size 0.7 # delay 0.3 # delaytime (3/16) # lock 1 # delayfeedback 0.4 # orbit 1
+
+-- 9. With a kit from Tidepool Drums
+--    (lines directly below each other are one block: several d's go in a "do")
+do
+  d2 $ s "acidwhbd*4"
+  d3 $ s "~ acidwhoh ~ acidwhoh" # gain 0.85
+  d4 $ s "~ acidwhcp" # n "<0 1>"
+
+-- 10. Synth pop with the same box: choose "Synth pop patterns + Pop octave bass"
+--     in the Sound list (it sets 118 bpm), save as e.g. "popline", then:
+setcps (118/60/4)
+
+d1 $ s "popline" # n 0
+
+-- the two-bar chord bass (pattern C: C, A♭, B♭, G)
+d1 $ loopAt 2 $ chop 32 $ s "popline" # n 2
+
+hush

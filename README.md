@@ -67,8 +67,10 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
   Options go after the name as `key=value` (the same keys as in the ⚙ panel, plus `width` and `height`).
   An inline visual only shows the patterns of its own block.
 - **File explorer and working directory**: the explorer (View ▸ Show file explorer, `Ctrl+Shift+E`) shows the
-  working directory. Double-click a file to open it; right-click for New Tidal file, Set as working directory, Show in
-  file manager and Copy path. The working directory is also ghci's current directory (changed live, so patterns keep
+  working directory. Double-click a file to open it. The **+** and new-folder buttons create a Tidal file or folder in
+  the selected folder; right-click for New Tidal file, New folder, Delete, Set as working directory, Show in file
+  manager and Copy path. **Delete** (or the Delete key) asks first, moves the file or folder to the Recycle Bin, and
+  closes tabs of files inside it. The working directory is also ghci's current directory (changed live, so patterns keep
   playing), where `BootTidal.hs` is looked for if there is none next to the file, and where file dialogs open. Set it
   with File ▸ Set working directory… or the folder button in the explorer.
 - **Loading screen** while Tidal boots at launch. GHC itself needs about 5 seconds to start on Windows (even
@@ -82,7 +84,15 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
   - A resonant filter (low/high/band-pass, notch) with drive, envelope and key tracking; amp, filter and mod
     envelopes; two LFOs; drive, chorus, ping-pong delay and reverb. The mod envelope and LFOs can drive pitch,
     wavetable position, cutoff, volume, pan or warp.
-  - Factory presets (leads, pads, basses, a bell, a kick and a hat), Randomise, auto-preview while you turn knobs,
+  - A **signal flow** diagram above the controls shows how the parts are connected: oscillators → mixer → filter →
+    amp → drive, chorus, delay, reverb → output, with a wire from every envelope and LFO to what it modulates.
+    Bypassed parts are dashed; click a block to jump to its controls.
+  - Factory presets in four groups: basics (leads, pads, basses, a bell, a kick and a hat), **acid techno** (303-style
+    saw/square lines, accent, squelch, rubber, sub, sync scream, ringing, distorted, a sweep to `chop`, dub-delay lead,
+    minor and fifths stabs, bleep) and **retro**
+    (chiptune square/pulse/arp, 80s brass, PWM strings, polysynth, analog bass, FM e-piano, rave hoover, rave organ,
+    sci-fi sweep, lo-fi keys) and **synth pop** (brass and major-chord stabs, pluck, arp bleep, clav pluck, octave
+    bass, square sub, glass bell keys, lush pad, synth choir, vibrato lead). Acid sounds are short notes: play them with `# legato 1` or `# cut 1`. Randomise, auto-preview while you turn knobs,
     and a keyboard to audition any note.
   - **Save to SuperDirt** renders each note in the Notes list (Tidal note names; `c5` is note 0) to a 24-bit WAV in
     `<samples folder>/<name>/`. With several notes, `n` picks them in order: `s "pad" # n "0 .. 5"`. With one note,
@@ -91,10 +101,78 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     elsewhere (e.g. the SuperCollider IDE) is restarted, after which TidalStudio runs it (option "Restart SuperDirt
     after saving"; turn it off to get the one-line load command instead). There is also a button that makes your `startup.scd` load your samples folder at every start (it
     uncomments the line if it is there, and keeps a backup as `startup.scd.bak`).
+- **Tidepool Drums** (Synth ▸ Tidepool Drums…, `Ctrl+Shift+U`): a drum synthesizer that saves a whole kit.
+  - Every drum is built from **layers**, each with its own envelope (attack, hold, decay, curve) and graph:
+    - **Osc 1**: the body, a wavetable oscillator whose pitch starts *Drop* semitones high and falls to *Pitch* over
+      *Drop time* (the kick's punch).
+    - **Osc 2**: a second oscillator at a ratio of osc 1's pitch, mixed in and/or frequency-modulating osc 1 (FM).
+    - **Noise**: white/pink/brown, filtered, with repeated hits for claps.
+    - **Metal**: inharmonic square waves through a band-pass, for hats, cymbals and cowbells.
+    - **Click**: the attack transient.
+
+    Then **drive** (soft, hard, fold, crush), a **filter** with its own envelope, and a **room**. A signal-flow
+    diagram shows the layers and what is on; click a block to jump to it.
+  - Models (kick, snare, tom, clap, closed/open hat, cymbal, rim, cowbell, zap, shaker) are starting points: *Start
+    from* sets a drum up as one of them, *Reset* goes back to it, and *Randomise* (`Ctrl+R`) varies it. There are twelve
+    factory kits (analog, punchy, hard techno, acid house, lo-fi, electro; three acid techno kits: warehouse, rumble with a separate `rb` rumble drum, and 303 era; and three synth pop kits: gated 80s with gated-reverb snare and big toms, electro-pop with a tambourine, and minimal wave). You can add or remove drums, and ▶ Groove
+    plays a two-bar beat with the kit. Kits from the first version are converted automatically.
+  - **Saved like the tidal-drum-machines kits**: each drum is its own sound named kit + drum, so a kit called `mykit`
+    gives `s "mykitbd"`, `s "mykitsd"`, `s "mykithh"`, … Each drum can have several **versions** (slightly different
+    tune/decay/tone, set by Spread) as `n 0`, `n 1`, …: `s "mykithh*8" # n "<0 1 2 3>"`.
+  - With "Also save as one kit" the whole kit is also one sound with a drum per index, like Dirt-Samples' `drum`:
+    `s "mykit" # n 0` is the first drum (bd), `n 1` the second, …
+  - SuperDirt loads the kit right after saving, the same way as Tidepool; "Copy example code" gives a beat to start from.
+- **Tidepool Acid** (Synth ▸ Tidepool Acid…, `Ctrl+Shift+J`): a bassline box with accent and slide, for the acid lines
+  that single-note samples can't play (a slide glides into the next note without re-triggering it).
+  - Eight pattern slots (A–H, keys `1`–`8`) of 1–32 sixteenth steps. The grid is a 13-note piano roll from the key up an
+    octave, with rows for octave up/down, **accent** (louder and brighter, building up over consecutive accents) and
+    **slide**. Click to place a note (again for a rest), drag to paint, right-click for a rest.
+  - *Random* (`R`) writes a new line in the chosen scale (minor, phrygian, dorian, minor pentatonic, major, chromatic),
+    *Mutate* (`M`) changes a few steps; shift, transpose, clear and copy-to-next-slot help build variations.
+  - The voice: saw or square into a driven, resonant 4-pole low-pass (cutoff, resonance, env mod, decay, accent), slide
+    time, gate length and swing, then drive, a tempo-synced delay and reverb. Nine acid and five synth pop sounds
+    to start from (they keep your patterns), plus seven acid demo patterns and seven synth pop patterns (octave basses,
+    a two-bar chord bass, arpeggios). Space plays the pattern as a loop with a moving playhead.
+  - **Saved as loops**: every slot up to the last one with notes becomes one seamless loop (the delay and reverb tails
+    wrap around) in one sound, so `s "acidloop" # n 0` is pattern A, `n 1` pattern B, … Play them in time with
+    `d1 $ loopAt 1 $ chop 16 $ s "acidloop" # n "<0 1 0 2>"` (32-step patterns: `loopAt 2 $ chop 32`), or at the
+    box's tempo with `setcps (130/60/4)`.
+- **Tidepool FM** (Synth ▸ Tidepool FM…, `Ctrl+Shift+K`): a six-operator FM synth in the spirit of the 80s digital
+  keyboards, for the glassy electric pianos, bells, mallets, slap basses and brass that wavetables don't do well.
+  - Six sine operators, each with a ratio (×0.5–×16 plus fine, for inharmonic bell ratios) or a fixed frequency, detune,
+    level/depth, key scaling and its own ADSR. Nine **algorithms** wire them (tower, two towers, three pairs, fan out,
+    organ, …); the diagram shows which operators are heard (carriers) and which modulate, and clicking one jumps to it.
+    Operator 6 has a feedback loop (sine → saw → noise).
+  - Global brightness (scales every modulator), key rate (higher notes decay faster), a pitch envelope (kicks, brass
+    blips), an LFO with vibrato and tremolo, and the same effects as Tidepool. Rendered 2× oversampled, so bright
+    sounds don't alias.
+  - 23 presets in keys & mallets, bass, brass & leads, pads & bells, percussion and synth pop (sound names start with
+    `fm`: `fmepiano`, `fmsolid`, `fmbell`, `fmpopep`, …). Saved like Tidepool: one sample per note, `n` picks the octave.
+- **VJ screen** (View ▸ VJ screen…, `Ctrl+Shift+V`): visuals for a performance. Drag the window to the projector and
+  press `F11`.
+  - **Driven by the music**: what Windows plays (loopback capture: bass, mid, high and beats from the kick), and every
+    Tidal event as a hit (kick, snare, hat or note, from the sound name). "Tidal events only" works without audio capture.
+  - **Nine scenes**: Liquid, Tunnel, Retro grid, Kaleido bloom, Plasma, Warp stars and Cells (GPU shaders), Spectrum ring
+    and Pattern rain (every event as a falling block). **Eight transitions**: crossfade, wipe, iris, dissolve, glitch
+    slices, zoom, luma key and flash cut. *Auto* changes scene every 1–32 cycles in time with Tidal, with a random or fixed
+    transition, and drifts slowly through the scenes when nothing plays.
+  - **Effects**: video-feedback trails, RGB split on the kicks, kaleidoscope, mirror, pixelate, scanlines, beat flash,
+    hit rings and sparks with the sound names, seven colour palettes. *Auto FX* varies them with every scene.
+  - **The code**: the program that is playing (the latest block of every `dN`), typed in as you run it, with each
+    sounding mini-notation token lit up in its pattern's colour. Errors shake in red, `hush` clears it, and the block
+    you are typing appears as a dim draft with a cursor. As a side panel or a big centred overlay (`C`).
+  - Move the mouse for the controls (they hide by themselves). Keys: `Space` next scene, `1`–`9` scenes, `A` auto,
+    `T` transition, `Q` colours, `C` code, `R`/`K`/`M`/`P`/`S`/`B` effects, `↑`/`↓` intensity, `[`/`]` trails, `?` all keys.
+- **Example scripts** (Synth ▸ Example scripts, or the 📄 button in each synth window) open in a new tab and show
+  how to play what each synth makes: Tidepool samples (`n` for the octave, `note` for pitch, chords, arpeggios, monophonic
+  basses with `cut`), Tidepool Drums kits (per-drum sounds, versions, the combined kit, fills, groove) and Tidepool Acid
+  loops (`loopAt`/`chop`, switching patterns, `splice`), a synth pop sketch using the first three, and Tidepool FM
+  samples (EP chords, octave basses, mallets, FM percussion). They are also in
+  [examples/](examples/). The self-test runs every block of them in Tidal.
 - **SuperDirt starts automatically**: at launch and whenever you run code, TidalStudio checks that SuperDirt answers
   (the same handshake Tidal uses) and starts SuperCollider + SuperDirt if it doesn't. The status bar shows
-  SuperDirt's state. If your `startup.scd` already starts SuperDirt, that is used as is. A SuperDirt started by
-  TidalStudio is stopped again when TidalStudio closes. Turn it off under SuperCollider ▸ Start SuperDirt
+  SuperDirt's state. If your `startup.scd` already starts SuperDirt, that is used as is. When TidalStudio starts SuperDirt it also loads every
+  sound in your Tidepool samples folder that `startup.scd` doesn't. A SuperDirt started by TidalStudio is stopped again when TidalStudio closes. Turn it off under SuperCollider ▸ Start SuperDirt
   automatically; SuperCollider ▸ Start SuperDirt starts it by hand, recent files, and settings saved to
   `%APPDATA%\TidalStudio\settings.json`.
 

@@ -54,8 +54,21 @@
             </MenuItem>
             <MenuItem Header="Sy_nth">
                 <MenuItem Header="Tidepool sample synth…" InputGesture="Ctrl+Shift+Y" Click="OnOpenSynth" />
+                <MenuItem Header="Tidepool Drums (drum kit synth)…" InputGesture="Ctrl+Shift+U" Click="OnOpenDrums" />
+                <MenuItem Header="Tidepool Acid (bassline box)…" InputGesture="Ctrl+Shift+J" Click="OnOpenAcid" />
+                <MenuItem Header="Tidepool FM (6-operator FM synth)…" InputGesture="Ctrl+Shift+K" Click="OnOpenFm" />
+                <Separator />
+                <MenuItem Header="Example scripts">
+                    <MenuItem Header="Using Tidepool synth samples" Click="OnOpenExample" Tag="01-tidepool-synth.tidal" />
+                    <MenuItem Header="Using Tidepool Drums kits" Click="OnOpenExample" Tag="02-tidepool-drums.tidal" />
+                    <MenuItem Header="Using Tidepool Acid loops" Click="OnOpenExample" Tag="03-tidepool-acid.tidal" />
+                    <MenuItem Header="Using Tidepool FM samples" Click="OnOpenExample" Tag="05-tidepool-fm.tidal" />
+                    <MenuItem Header="Synth pop sketch (all three synths)" Click="OnOpenExample" Tag="04-synth-pop-song.tidal" />
+                </MenuItem>
             </MenuItem>
             <MenuItem Header="_View">
+                <MenuItem Header="VJ screen (visuals for a performance)…" InputGesture="Ctrl+Shift+V" Click="OnOpenVj" />
+                <Separator />
                 <MenuItem Header="Add visualizer" x:Name="AddVisualizerMenu" />
                 <MenuItem Header="Reset visualizers" Click="OnResetVisualizers" />
                 <MenuItem Header="Show file explorer" x:Name="ShowExplorerItem" ToggleType="CheckBox" InputGesture="Ctrl+Shift+E" Click="OnToggleExplorer" />

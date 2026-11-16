@@ -16,7 +16,16 @@ public partial class MainWindow
     {
         Directory.CreateDirectory(outDir);
         var log = new List<string>();
-        void Log(string s) { log.Add($"{DateTime.Now:HH:mm:ss.fff} {s}"); File.WriteAllLines(Path.Combine(outDir, "selftest.log"), log); }
+        // Called from the test and from ghci's reader threads: one writer at a time.
+        void Log(string s)
+        {
+            lock (log)
+            {
+                log.Add($"{DateTime.Now:HH:mm:ss.fff} {s}");
+                try { File.WriteAllLines(Path.Combine(outDir, "selftest.log"), log); }
+                catch (IOException) { }
+            }
+        }
 
         _services.Ghci.Output += l => Log($"[{l.Kind}] {l.Text}");
         Log("selftest started");
@@ -77,8 +86,29 @@ public partial class MainWindow
             Log($"deliberate error: success={bad.Success}, errors={bad.Errors.Count}, first line={bad.Errors.FirstOrDefault()?.Line}");
             await HushAsync();
 
+            // Every block of every example script must compile and run in Tidal (the silent boot file plays nothing).
+            foreach (var (_, file) in TidalStudio.Core.Synth.ExampleScripts.All)
+            {
+                string script = TidalStudio.Core.Synth.ExampleScripts.Read(file);
+                int ok = 0, failed = 0, at = 0, lines = script.Split('\n').Length;
+                while (at < lines)
+                {
+                    var block = CodeBlocks.GetBlock(script, at);
+                    if (block is null) { at++; continue; }
+                    at = block.EndLine + 1;
+                    bool onlyComments = block.Text.Split('\n').All(l => l.Trim().Length == 0 || l.TrimStart().StartsWith("--", StringComparison.Ordinal));
+                    if (onlyComments || block.Text.Trim() == "hush") continue;
+                    var r = await _services.Ghci.EvalAsync(block.Text);
+                    if (r.Success) ok++;
+                    else { failed++; Log($"example {file} lines {block.StartLine + 1}-{block.EndLine + 1} FAILED: {r.ErrorText.Replace('\n', ' ')}"); }
+                }
+                Log($"example {file}: {ok} blocks ran, {failed} failed");
+                await HushAsync();
+            }
+
             await RunEditorChecksAsync(Log, outDir);
             if (_settings.SamplesFolder is not null) await RunSynthChecksAsync(Log, outDir);
+            await RunVjChecksAsync(Log, outDir);
         }
         else
         {
@@ -204,6 +234,64 @@ public partial class MainWindow
         await Dispatcher.UIThread.InvokeAsync(() => Render(window, Path.Combine(outDir, "synth-saved.png")));
         await Dispatcher.UIThread.InvokeAsync(window.Close);
 
+        // Tidepool Drums: open, screenshot, save the kit (no playback).
+        var drums = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var w = new Synth.DrumWindow(_services, () => _completionCatalog.InvalidateSamples(), (_, text) => log("[drums] " + text),
+                folder => Task.FromResult((false, $"(self-test: SuperDirt restart skipped for {Path.GetFileName(folder)})")));
+            w.Show();
+            return w;
+        });
+        await Task.Delay(1200);
+        await Dispatcher.UIThread.InvokeAsync(() => Render(drums, Path.Combine(outDir, "drums.png")));
+        watch.Restart();
+        await Dispatcher.UIThread.InvokeAsync(drums.SaveAsync);
+        log($"drums: save took {watch.ElapsedMilliseconds} ms; status: {await Dispatcher.UIThread.InvokeAsync(() => drums.StatusText)}");
+        foreach (var dir in Directory.GetDirectories(_settings.SamplesFolder!).Where(d => Path.GetFileName(d).StartsWith("mykit", StringComparison.Ordinal)))
+            log($"drums: {Path.GetFileName(dir)}: {string.Join(", ", Directory.GetFiles(dir).Select(Path.GetFileName))}");
+        await Dispatcher.UIThread.InvokeAsync(() => Render(drums, Path.Combine(outDir, "drums-saved.png")));
+        await Dispatcher.UIThread.InvokeAsync(drums.Close);
+
+        // Tidepool Acid: open, screenshot, save the loops (no playback).
+        var acid = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var w = new Synth.AcidWindow(_services, () => _completionCatalog.InvalidateSamples(), (_, text) => log("[acid] " + text),
+                folder => Task.FromResult((false, $"(self-test: SuperDirt restart skipped for {Path.GetFileName(folder)})")));
+            w.Show();
+            return w;
+        });
+        await Task.Delay(1200);
+        await Dispatcher.UIThread.InvokeAsync(() => Render(acid, Path.Combine(outDir, "acid.png")));
+        watch.Restart();
+        await Dispatcher.UIThread.InvokeAsync(acid.SaveAsync);
+        log($"acid: save took {watch.ElapsedMilliseconds} ms; status: {await Dispatcher.UIThread.InvokeAsync(() => acid.StatusText)}");
+        string acidFolder = Path.Combine(_settings.SamplesFolder!, "acidloop");
+        if (Directory.Exists(acidFolder))
+            log($"acid: {string.Join(", ", Directory.GetFiles(acidFolder).Select(f => $"{Path.GetFileName(f)} ({new FileInfo(f).Length / 1024} KB)"))}");
+        else log($"acid: nothing written to {acidFolder}");
+        await Dispatcher.UIThread.InvokeAsync(() => Render(acid, Path.Combine(outDir, "acid-saved.png")));
+        await Dispatcher.UIThread.InvokeAsync(acid.Close);
+
+        // Tidepool FM: open, screenshot, save the default patch (no playback).
+        var fm = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var w = new Synth.FmWindow(_services, () => _completionCatalog.InvalidateSamples(), (_, text) => log("[fm] " + text),
+                folder => Task.FromResult((false, $"(self-test: SuperDirt restart skipped for {Path.GetFileName(folder)})")));
+            w.Show();
+            return w;
+        });
+        await Task.Delay(1200);
+        await Dispatcher.UIThread.InvokeAsync(() => Render(fm, Path.Combine(outDir, "fm.png")));
+        watch.Restart();
+        await Dispatcher.UIThread.InvokeAsync(fm.SaveAsync);
+        log($"fm: save took {watch.ElapsedMilliseconds} ms; status: {await Dispatcher.UIThread.InvokeAsync(() => fm.StatusText)}");
+        string fmFolder = Path.Combine(_settings.SamplesFolder!, "fmepiano"); // the default patch is the Tine piano
+        if (Directory.Exists(fmFolder))
+            log($"fm: {string.Join(", ", Directory.GetFiles(fmFolder).Select(f => $"{Path.GetFileName(f)} ({new FileInfo(f).Length / 1024} KB)"))}");
+        else log($"fm: nothing written to {fmFolder}");
+        await Dispatcher.UIThread.InvokeAsync(() => Render(fm, Path.Combine(outDir, "fm-saved.png")));
+        await Dispatcher.UIThread.InvokeAsync(fm.Close);
+
         if (_selfTestAllowRestart)
         {
             // Ask SuperDirt itself how many samples it has under the new name (proves the restart and the load).
@@ -213,6 +301,114 @@ public partial class MainWindow
             for (int i = 0; i < 20 && !File.Exists(answer); i++) await Task.Delay(250);
             log($"synth: SuperDirt state={_dirtState}, code sent={sent}, buffers loaded for sawlead = {(File.Exists(answer) ? File.ReadAllText(answer) : "(no answer)")}");
         }
+    }
+
+    /// <summary>
+    /// VJ screen: a fake performance (code in the code log, a groove of events tagged with that code's mini-notation
+    /// positions, nothing played), then a screenshot of every scene, a transition and the controls.
+    /// </summary>
+    private async Task RunVjChecksAsync(Action<string> log, string outDir)
+    {
+        const string code = "do\n  d1 $ s \"bd*4\" # gain 1.1\n  d2 $ s \"~ sn ~ [sn cp]\"\n  d3 $ s \"hh*8\" # gain 0.8\n" +
+                            "  d4 $ note \"c a f g\" # s \"fmpopbass\" # cut 1";
+        var vj = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            Vj.VjRenderer.RasterMaxWidth = 960;
+            _settings.Vj.Code = Core.Vj.VjCodeMode.Panel;
+            _settings.Vj.Auto = false;
+            _settings.Vj.Source = Core.Vj.VjSource.Events;
+            var w = new Vj.VjWindow(_services) { Width = 1280, Height = 720 };
+            w.Show();
+            return w;
+        });
+        await Task.Delay(800);
+        log($"vj: shader compile errors: {(Vj.VjRenderer.CompileErrors.Length == 0 ? "none" : Vj.VjRenderer.CompileErrors.Replace('\n', ' '))}");
+
+        // The fake performance: 120 bpm, starting now, for 40 s.
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            double now = _services.Time.Now;
+            var pre = Preprocessor.Wrap(code, _services.Literals.NextId);
+            _services.CodeLog.Add(code, true, pre.Literals, now - 3);
+            _services.CodeLog.Add("setcps (120/60/4)", true, Array.Empty<LiteralRef>(), now - 0.5);
+            var lits = pre.Literals;
+            string Content(int i) => code.Substring(lits[i].Offset + 1, lits[i].ContentLength);
+            var tokens = Enumerable.Range(0, lits.Count)
+                .Select(i => System.Text.RegularExpressions.Regex.Matches(Content(i), "[a-z0-9]+").Select(m => (m.Index, m.Length, m.Value)).ToList())
+                .ToList();
+            const double cps = 0.5;
+            var events = new List<Core.Events.TidalEvent>();
+            for (int step = 0; step < 40 * 4; step++)
+            {
+                double t = now + step * 0.125, cycle = step / 16.0;
+                void Add(int lit, int token, string sound, double gain, double? note = null) => events.Add(new Core.Events.TidalEvent
+                {
+                    Time = t, Duration = 0.12, Cycle = cycle, Cps = cps, PatternId = (lit + 1).ToString(), Sound = sound, Gain = gain, Note = note,
+                    Pan = 0.5 + 0.3 * Math.Sin(step * 0.7),
+                    Spans = new[] { new Core.Events.SourceSpan(lits[lit].Id, tokens[lit][token].Index, tokens[lit][token].Index + tokens[lit][token].Length) },
+                });
+                if (step % 4 == 0) Add(0, 0, "bd", 1.1);
+                if (step % 16 == 4) Add(1, 0, "sn", 1);
+                if (step % 16 == 12) Add(1, 1, "sn", 1);
+                if (step % 16 == 14) Add(1, 2, "cp", 0.9);
+                if (step % 2 == 0) Add(2, 0, "hh", 0.8);
+                if (step % 4 == 2) Add(3, step / 4 % 4, "fmpopbass", 1, new[] { 0.0, -3, -7, -5 }[step / 16 % 4]);
+            }
+            foreach (var e in events)
+            {
+                _services.Events.Add(e);
+                _services.Clock.Update(e);
+            }
+        });
+        await Task.Delay(1500);
+        log($"vj: running at {await Dispatcher.UIThread.InvokeAsync(() => vj.Canvas.Fps):0} fps (GPU path while visible); beats seen {await Dispatcher.UIThread.InvokeAsync(() => vj.Canvas.Signals.Beats)}");
+
+        string dir = Path.Combine(outDir, "vj");
+        Directory.CreateDirectory(dir);
+        for (int i = 0; i < Core.Vj.VjDirector.Scenes.Count; i++)
+        {
+            int scene = i;
+            await Dispatcher.UIThread.InvokeAsync(() => { vj.Canvas.Director.Jump(scene); vj.ShowControls(false); });
+            await Task.Delay(500);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            string path = Path.Combine(dir, $"{i + 1}-{Core.Vj.VjDirector.Scenes[i].Replace(' ', '-').ToLowerInvariant()}.png");
+            // A few frames so the trails build up in the software renderer too.
+            for (int k = 0; k < 3; k++)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { vj.Canvas.Step(); Render(vj.Canvas, path); });
+                await Task.Delay(60);
+            }
+            log($"vj: scene {Core.Vj.VjDirector.Scenes[i]}: {new FileInfo(path).Length / 1024} KB, {watch.ElapsedMilliseconds / 3} ms per software frame");
+        }
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            vj.Canvas.Options.TransitionSeconds = 3;
+            vj.Canvas.Options.Transition = 4; // glitch slices
+            vj.Canvas.Director.Jump(2);
+            vj.Canvas.Director.Go(0, _services.Time.Now);
+        });
+        await Task.Delay(1400);
+        await Dispatcher.UIThread.InvokeAsync(() => { vj.Canvas.Step(); Render(vj.Canvas, Path.Combine(dir, "transition.png")); });
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            vj.Canvas.Options.Code = Core.Vj.VjCodeMode.Overlay;
+            vj.Canvas.Options.Kaleido = 6;
+            vj.Canvas.Director.Jump(1);
+            _services.CodeLog.SetDraft("d5 $ jux rev $ s \"arpy*8\" # n (irand 8)", _services.Time.Now);
+            vj.ShowControls(true);
+        });
+        await Task.Delay(600);
+        await Dispatcher.UIThread.InvokeAsync(() => { vj.Canvas.Step(); Render(vj, Path.Combine(dir, "controls-overlay.png")); });
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            vj.Canvas.Options.Kaleido = 0;
+            vj.Canvas.Options.Code = Core.Vj.VjCodeMode.Panel;
+            vj.Canvas.Options.Auto = true;
+            vj.Canvas.Options.Source = Core.Vj.VjSource.Auto;
+            vj.Close();
+        });
+        _services.Events.Clear();
+        _services.Clock.Reset();
     }
 
     private string LastLine(int fromEnd)

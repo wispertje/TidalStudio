@@ -36,6 +36,8 @@ public sealed class AppServices : IAsyncDisposable
     public AudioCapture AudioCapture { get; }
     public LiteralRegistry Literals { get; }
     public FrameTicker Ticker { get; } = new();
+    /// <summary>The code that was run (for the VJ screen's code layer).</summary>
+    public TidalStudio.Core.Vj.CodeLog CodeLog { get; } = new();
 
     public async ValueTask DisposeAsync()
     {

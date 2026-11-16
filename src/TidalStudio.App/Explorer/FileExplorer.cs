@@ -18,6 +18,7 @@ public sealed class FileExplorer : DockPanel
     private const int MaxEntriesPerFolder = 2000;
 
     private static readonly Geometry FolderIcon = Geometry.Parse("M1.5,3 L6,3 L7.5,4.5 L14.5,4.5 L14.5,13 L1.5,13 Z");
+    private static readonly Geometry NewFolderIcon = Geometry.Parse("F0 M1.5,3 L6,3 L7.5,4.5 L14.5,4.5 L14.5,13 L1.5,13 Z M7.25,6 L8.75,6 L8.75,8.1 L10.85,8.1 L10.85,9.6 L8.75,9.6 L8.75,11.7 L7.25,11.7 L7.25,9.6 L5.15,9.6 L5.15,8.1 L7.25,8.1 Z");
     private static readonly Geometry FileIcon = Geometry.Parse("M3,1.5 L9.5,1.5 L13,5 L13,14.5 L3,14.5 Z M9.5,1.5 L9.5,5 L13,5");
     private static readonly IBrush FolderBrush = new SolidColorBrush(Color.Parse("#8A93A6"));
     private static readonly IBrush TidalBrush = new SolidColorBrush(Color.Parse("#4ECDC4"));
@@ -32,6 +33,7 @@ public sealed class FileExplorer : DockPanel
     private readonly DispatcherTimer _refreshTimer;
     private FileSystemWatcher? _watcher;
     private string? _currentFile;
+    private readonly Func<string?> _rootFolder;
 
     private sealed record Node(string Path, bool IsDirectory)
     {
@@ -57,7 +59,16 @@ public sealed class FileExplorer : DockPanel
         ToolTip.SetTip(choose, "Set working directory…");
         choose.Click += (_, _) => ChooseFolderRequested?.Invoke();
 
+        var newFile = IconButton("+", "New Tidal file (in the selected folder)");
+        newFile.Click += (_, _) => NewFileRequested?.Invoke(TargetFolder());
+        var newFolder = new Button { Content = new PathIcon { Data = NewFolderIcon, Width = 13, Height = 13 } };
+        newFolder.Classes.Add("icon");
+        ToolTip.SetTip(newFolder, "New folder (in the selected folder)");
+        newFolder.Click += (_, _) => NewFolderRequested?.Invoke(TargetFolder());
+
         var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        buttons.Children.Add(newFile);
+        buttons.Children.Add(newFolder);
         buttons.Children.Add(up);
         buttons.Children.Add(refresh);
         buttons.Children.Add(choose);
@@ -87,8 +98,14 @@ public sealed class FileExplorer : DockPanel
                 e.Handled = true;
                 FileOpenRequested?.Invoke(node.Path);
             }
+            else if (e.Key == Key.Delete && _tree.SelectedItem is TreeViewItem { Tag: Node selected })
+            {
+                e.Handled = true;
+                DeleteRequested?.Invoke(selected.Path);
+            }
         };
-        _tree.ContextMenu = new ContextMenu { ItemsSource = FolderMenu(() => Root) };
+        _rootFolder = () => Root;
+        _tree.ContextMenu = new ContextMenu { ItemsSource = FolderMenu(_rootFolder) };
         Children.Add(_tree);
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
@@ -105,6 +122,40 @@ public sealed class FileExplorer : DockPanel
     public event Action<string>? FileOpenRequested;
     public event Action<string>? WorkingDirectoryRequested;
     public event Action<string>? NewFileRequested;
+    public event Action<string>? NewFolderRequested;
+    /// <summary>Delete a file or folder (the handler asks for confirmation).</summary>
+    public event Action<string>? DeleteRequested;
+
+    /// <summary>The selected folder, the folder of the selected file, or the root.</summary>
+    public string TargetFolder() => _tree.SelectedItem switch
+    {
+        TreeViewItem { Tag: Node { IsDirectory: true } d } => d.Path,
+        TreeViewItem { Tag: Node f } => Path.GetDirectoryName(f.Path) ?? Root ?? "",
+        _ => Root ?? "",
+    };
+
+    /// <summary>Expands the folders down to <paramref name="path"/> and selects it (after creating something).</summary>
+    public void Reveal(string path)
+    {
+        Refresh();
+        if (Root is null || !Core.Files.FileOperations.IsSameOrInside(path, Root)) return;
+        var items = _tree.Items;
+        string current = Root;
+        foreach (var part in Path.GetRelativePath(Root, path).Split(Path.DirectorySeparatorChar))
+        {
+            current = Path.Combine(current, part);
+            var item = items.OfType<TreeViewItem>().FirstOrDefault(i => i.Tag is Node n && n.Path.Equals(current, StringComparison.OrdinalIgnoreCase));
+            if (item is null) return;
+            if (current.Equals(path, StringComparison.OrdinalIgnoreCase))
+            {
+                _tree.SelectedItem = item;
+                item.BringIntoView();
+                return;
+            }
+            item.IsExpanded = true; // populates it
+            items = item.Items;
+        }
+    }
     public event Action? ChooseFolderRequested;
 
     public void SetRoot(string directory)
@@ -232,6 +283,7 @@ public sealed class FileExplorer : DockPanel
         ToolTip.SetTip(header, path);
 
         var item = new TreeViewItem { Header = header, Tag = node, MinHeight = 24, Padding = new Thickness(0) };
+        header.ContextRequested += (_, _) => _tree.SelectedItem = item;
         if (isDirectory)
         {
             header.ContextMenu = new ContextMenu { ItemsSource = FolderMenu(() => path) };
@@ -282,13 +334,20 @@ public sealed class FileExplorer : DockPanel
         setWorking.Click += (_, _) => { if (folder() is { } f) WorkingDirectoryRequested?.Invoke(f); };
         var newFile = new MenuItem { Header = "New Tidal file here…" };
         newFile.Click += (_, _) => { if (folder() is { } f) NewFileRequested?.Invoke(f); };
+        var newFolder = new MenuItem { Header = "New folder here…" };
+        newFolder.Click += (_, _) => { if (folder() is { } f) NewFolderRequested?.Invoke(f); };
+        var delete = new MenuItem { Header = "Delete folder…", InputGesture = new KeyGesture(Key.Delete) };
+        delete.Click += (_, _) => { if (folder() is { } f) DeleteRequested?.Invoke(f); };
         var reveal = new MenuItem { Header = "Show in file manager" };
         reveal.Click += (_, _) => { if (folder() is { } f) Reveal(f, select: false); };
         var copy = new MenuItem { Header = "Copy path" };
         copy.Click += (_, _) => { if (folder() is { } f) CopyPath(f); };
         var refresh = new MenuItem { Header = "Refresh" };
         refresh.Click += (_, _) => Refresh();
-        return new List<MenuItem> { newFile, setWorking, reveal, copy, refresh };
+        var items = new List<MenuItem> { newFile, newFolder, setWorking, reveal, copy, refresh };
+        // The root itself is deleted from its parent, not from here.
+        if (!ReferenceEquals(folder, _rootFolder)) items.Add(delete);
+        return items;
     }
 
     private List<MenuItem> FileMenu(string path)
@@ -299,7 +358,11 @@ public sealed class FileExplorer : DockPanel
         reveal.Click += (_, _) => Reveal(path, select: true);
         var copy = new MenuItem { Header = "Copy path" };
         copy.Click += (_, _) => CopyPath(path);
-        return new List<MenuItem> { open, reveal, copy };
+        var newFile = new MenuItem { Header = "New Tidal file next to it…" };
+        newFile.Click += (_, _) => { if (Path.GetDirectoryName(path) is { } d) NewFileRequested?.Invoke(d); };
+        var delete = new MenuItem { Header = "Delete…", InputGesture = new KeyGesture(Key.Delete) };
+        delete.Click += (_, _) => DeleteRequested?.Invoke(path);
+        return new List<MenuItem> { open, newFile, reveal, copy, delete };
     }
 
     private static void Reveal(string path, bool select)

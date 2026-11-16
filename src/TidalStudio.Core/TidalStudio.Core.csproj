@@ -1,5 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <EmbeddedResource Include="Resources\**\*" />
+    <EmbeddedResource Include="..\..\examples\*.tidal" LogicalName="examples.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

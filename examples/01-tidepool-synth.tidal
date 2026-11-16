@@ -1,0 +1,58 @@
+-- ============================================================================
+-- Tidepool (Synth ▸ Tidepool sample synth) — how to play the samples it makes
+-- ============================================================================
+-- Run a block: put the cursor in it and press Ctrl+Enter.  Stop everything: Ctrl+Alt+H.
+--
+-- How a Tidepool sound is stored
+--   Tidepool renders one sample per note in the "Notes" box into <samples folder>/<name>/.
+--   Notes "c4 c5" give   name_00_c4.wav  (n 0)   and   name_01_c5.wav  (n 1).
+--   * n    picks the rendered note (in practice: the octave)
+--   * note shifts the pitch from there, in semitones. The notes are rendered on c, so
+--     Tidal's note names line up: note "c" plays the sample as rendered, "e" is 4 up,
+--     "a4" is 3 down (Tidal's octave 5 is the default, so "a4" is the a below "c").
+--   Pitching a sample far from where it was rendered changes its length and tone:
+--   render more notes ("c2 c3 c4 c5") and pick the closest with n instead.
+--
+-- The sound names below are the presets' default names (Synth pop presets: popbass,
+-- poppad, popbell, poparp, popbrass, poplead …). Save the preset first, or change the name.
+
+setcps (118/60/4)
+
+-- 1. The sample as it is, once per cycle
+d1 $ s "sawlead"
+
+-- 2. A melody: n chooses the octave, note the notes.
+--    legato 1 makes every note last exactly its step, so tails don't pile up.
+d1 $ note "c e g e a g e d" # s "poplead" # n 0 # legato 1
+
+-- 3. Rests, longer notes and rhythm come from the mini-notation as usual
+d1 $ note "c ~ [e g] ~ a@2 g e" # s "poplead" # n 0 # legato 1
+
+-- 4. Chords: stack notes with commas, or use chord names (c'maj, a4'min, f4'maj7 …)
+d2 $ note "<c'maj a4'min f4'maj g4'maj>" # s "poppad" # n 0 # legato 1
+
+-- 5. Arpeggios from the same chords ('5 stretches each chord to 5 notes, up into the next octave)
+d3 $ arp "<up updown>" $ note "<c'maj'5 a4'min'5 f4'maj'5 g4'maj'5>"
+   # s "poparp" # n 1 # legato 1 # gain 0.85
+
+-- 6. A monophonic bass: cut 1 stops the previous note when the next one starts.
+--    n "1 2" jumps between the rendered c2 and c3 (an octave bass); note sets the root per bar.
+d4 $ n "1 2 1 2 1 2 1 2" # s "popbass" # note "<c a4 f4 g4>" # cut 1
+
+-- 7. Shaping the sample in Tidal: SuperDirt's envelope and filters work on every sample
+d2 $ note "<c'maj a4'min f4'maj g4'maj>" # s "poppad" # n 0
+   # legato 1.5 # attack 0.2 # release 0.8 # lpf (range 800 4000 $ slow 8 sine)
+
+-- 8. Effects and movement
+d5 $ note "c ~ ~ g ~ ~ e ~" # s "popbell" # n 0
+   # room 0.3 # size 0.8 # delay 0.4 # delaytime 0.375 # delayfeedback 0.45
+   # pan (slow 4 sine)
+
+-- 9. Dynamics: gain per step, and a little randomness so it breathes
+d3 $ arp "up" $ note "<c'maj a4'min>" # s "poparp" # n 1 # legato 1
+   # gain "1 0.8 0.9 0.8" # speed (range 0.995 1.005 rand)
+
+-- 10. Stabs on the off-beats with struct
+d6 $ struct "~ t ~ t" $ note "<c'maj a4'min f4'maj g4'maj>" # s "popbrass" # n 0 # legato 0.5
+
+hush

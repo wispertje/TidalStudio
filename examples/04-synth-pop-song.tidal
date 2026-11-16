@@ -1,0 +1,53 @@
+-- ============================================================================
+-- A synth pop sketch with sounds from all three Tidepool synths
+-- ============================================================================
+-- Make the sounds first (each is a preset; save it with its default name):
+--   Tidepool:        Synth pop ▸ Pop octave bass (popbass), Lush pop pad (poppad),
+--                    Pop arp bleep (poparp), Pop brass stab (popbrass),
+--                    Glass bell keys (popbell), Vibrato pop lead (poplead)
+--   Tidepool Drums:  kit "Synth pop · gated 80s" (sounds gatedbd, gatedsd, gatedhh …)
+--   Tidepool Acid:   "Synth pop patterns + Pop octave bass", name "popline"
+-- Run a block with Ctrl+Enter, one after another, to build the track up.
+-- The chords are the classic I–vi–IV–V: C, A minor, F, G (one bar each).
+
+setcps (118/60/4)
+
+-- Drums
+do
+  d1 $ s "gatedbd*4"
+  d2 $ s "~ gatedsd" # n "<0 1>"
+  d3 $ s "gatedhh*8" # n (irand 4) # gain (range 0.7 0.9 rand) # cut 1
+  d4 $ s "~ ~ ~ gatedoh" # cut 1 # gain 0.8
+
+-- Bass: octave eighths following the chords (Tidepool sample)
+d5 $ n "1 2 1 2 1 2 1 2" # s "popbass" # note "<c a4 f4 g4>" # cut 1
+
+-- … or the same idea from Tidepool Acid's sequencer loop (pattern C = the two-bar chord bass;
+--   it plays C, A♭, B♭, G — a darker variant)
+d5 $ loopAt 2 $ chop 32 $ s "popline" # n 2
+
+-- Pads
+d6 $ note "<c'maj a4'min f4'maj g4'maj>" # s "poppad" # n 0 # legato 1.1 # gain 0.8 # orbit 1
+
+-- Arpeggio
+d7 $ arp "updown" $ note "<c'maj'5 a4'min'5 f4'maj'5 g4'maj'5>"
+   # s "poparp" # n 1 # legato 1 # gain 0.75 # pan (slow 2 sine) # orbit 1
+
+-- Brass stabs on the off-beats, every other bar
+d8 $ every 2 (const silence) $ struct "~ t ~ t" $ note "<c'maj a4'min f4'maj g4'maj>"
+   # s "popbrass" # n 0 # legato 0.5 # gain 0.85
+
+-- A bell melody
+d9 $ note "<[e ~ g ~ a ~ g e] [c ~ e ~ d ~ c ~] [a4 ~ c ~ f ~ e ~] [d ~ b4 ~ d e ~ ~]>"
+   # s "popbell" # n 1 # legato 1 # room 0.3 # orbit 1
+
+-- Lead (try it over the chorus)
+d10 $ note "<[g@3 a] [g@2 e@2] [f@3 e] [d@4]>" # s "poplead" # n 0 # legato 1 # gain 0.85
+
+-- Breakdown: drop the drums and bass, open the pad filter
+do
+  mapM_ (\i -> i silence) [d1, d2, d3, d4, d5]
+  d6 $ note "<c'maj a4'min f4'maj g4'maj>" # s "poppad" # n 0 # legato 1.1
+     # lpf (range 600 5000 $ slow 4 saw) # orbit 1
+
+hush

@@ -1,0 +1,70 @@
+-- ============================================================================
+-- Tidepool Drums (Synth ▸ Tidepool Drums) — how to play the kits it makes
+-- ============================================================================
+-- Run a block: put the cursor in it and press Ctrl+Enter.  Stop everything: Ctrl+Alt+H.
+--
+-- How a kit is stored (like the tidal-drum-machines kits)
+--   Every drum is its own sound: kit name + drum name.  A kit called "mykit" gives
+--     mykitbd  mykitsd  mykitcp  mykitrim  mykithh  mykitoh  mykitcr  mykitrd
+--     mykitlt  mykitmt  mykitht  mykitcb   mykitsh  mykitperc
+--   A drum with several "Versions" has them as n 0, n 1, …  (slightly different hits).
+--   With "Also save as one kit", the whole kit is also ONE sound with a drum per n,
+--   in the order of the pads:  s "mykit" # n 0 = bd, n 1 = sd, n 2 = cp, n 4 = hh …
+--
+-- Change "mykit" to your kit's name. The factory kits are called boom, punch, hard,
+-- acidhouse, dusty, electro, acidwh, acidrumble, acid88, and the synth pop kits
+-- gated, epop and minwave (e.g. s "gatedsd").
+
+setcps (118/60/4)
+
+-- 1. One drum per line: easy to mute and change separately.
+--    Lines directly below each other are ONE block for Tidal, so several d1, d2 … go in a "do".
+do
+  d1 $ s "mykitbd*4"
+  d2 $ s "~ mykitsd ~ mykitsd"
+  d3 $ s "mykithh*8"
+
+-- 2. Versions: alternate them so repeated hits don't sound like a machine gun
+d3 $ s "mykithh*8" # n "<0 1 2 3>"
+
+-- … or pick a random version for every hit
+d3 $ s "mykithh*16" # n (irand 4) # gain (range 0.7 1 rand)
+
+-- 3. Closed and open hat choke each other when they share a cut group
+d3 $ s "[mykithh mykithh mykitoh mykithh]*2" # cut 1
+
+-- 4. A whole beat in one pattern
+d1 $ s "mykitbd [~ mykitbd] mykitsd ~, mykithh*8, ~ ~ ~ mykitoh"
+
+-- 5. The combined kit: one sound, drums by n (bd=0 sd=1 cp=2 rim=3 hh=4 oh=5 …)
+d1 $ n "0 4 [1 4] 4" # s "mykit"
+
+-- … the same with the sound:n shorthand
+d1 $ s "mykit:0 mykit:4 mykit:1 mykit:4"
+
+-- 6. Fills: toms every fourth cycle
+d4 $ every 4 (const $ s "~ ~ ~ [mykitlt mykitmt mykitht mykitht]") $ s "~"
+
+-- 7. Groove: swing the hats, nudge the snare a little late
+do
+  d3 $ swingBy (1/24) 4 $ s "mykithh*16" # n (irand 4) # gain 0.8
+  d2 $ s "~ mykitsd ~ mykitsd" # nudge 0.01
+
+-- 8. Ghost notes: quiet extra snares that only sometimes play
+d5 $ degradeBy 0.5 $ s "~ ~ ~ ~ ~ ~ ~ mykitsd ~ ~ ~ ~ ~ ~ mykitsd ~" # gain 0.55
+
+-- 9. Synth pop: the big gated snare and tom fills from the "Synth pop · gated 80s" kit
+do
+  d1 $ s "gatedbd ~ ~ gatedbd ~ ~ gatedbd ~"
+  d2 $ s "~ gatedsd" # n "<0 1>"
+  d3 $ s "gatedhh*8" # n (irand 4) # gain 0.8
+  d4 $ every 4 (const $ s "~ ~ [gatedht gatedht] [gatedmt gatedlt]") $ s "~"
+
+-- 10. Electro-pop with a tambourine (the "sh" drum of the epop kit) on the off-beats
+do
+  d1 $ s "epopbd*4"
+  d2 $ s "~ [epopsd, epopcp]"
+  d3 $ s "~ epopsh ~ epopsh" # n "<0 1 2 3>"
+  d4 $ silence
+
+hush

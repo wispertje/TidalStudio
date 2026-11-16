@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Xml;
@@ -17,6 +17,7 @@ using TidalStudio.App.Editor;
 using TidalStudio.App.Explorer;
 using TidalStudio.App.Services;
 using TidalStudio.App.Visualizers;
+using TidalStudio.Core.Files;
 using TidalStudio.Core.Settings;
 using TidalStudio.Core.SuperCollider;
 using TidalStudio.Core.Tidal;
@@ -64,6 +65,7 @@ public partial class MainWindow : Window
         _services = services;
         _settings = services.Settings;
         InitializeComponent();
+        Synth.SynthWindow.OpenExampleScript = OpenExampleScript;
 
         _console = new ConsoleController(ConsoleView);
         _miniRenderer = new MiniNotationRenderer(services, () => Editor.Document);
@@ -89,6 +91,8 @@ public partial class MainWindow : Window
         Explorer.FileOpenRequested += OnExplorerOpen;
         Explorer.WorkingDirectoryRequested += dir => _ = SetWorkingDirectoryAsync(dir);
         Explorer.NewFileRequested += OnExplorerNewFile;
+        Explorer.NewFolderRequested += OnExplorerNewFolder;
+        Explorer.DeleteRequested += OnExplorerDelete;
         Explorer.ChooseFolderRequested += () => _ = ChooseWorkingDirectoryAsync();
 
         Tabs.Activated += ActivateTab;
@@ -270,6 +274,26 @@ public partial class MainWindow : Window
             e.Handled = true;
             OnOpenSynth(this, new RoutedEventArgs());
         }
+        else if (ctrl && shift && !alt && e.Key == Key.U)
+        {
+            e.Handled = true;
+            OnOpenDrums(this, new RoutedEventArgs());
+        }
+        else if (ctrl && shift && !alt && e.Key == Key.J)
+        {
+            e.Handled = true;
+            OnOpenAcid(this, new RoutedEventArgs());
+        }
+        else if (ctrl && shift && !alt && e.Key == Key.V)
+        {
+            e.Handled = true;
+            OnOpenVj(this, new RoutedEventArgs());
+        }
+        else if (ctrl && shift && !alt && e.Key == Key.K)
+        {
+            e.Handled = true;
+            OnOpenFm(this, new RoutedEventArgs());
+        }
         else if (ctrl && shift && !alt && e.Key == Key.E)
         {
             e.Handled = true;
@@ -376,9 +400,11 @@ public partial class MainWindow : Window
 
         string code = raw;
         bool wrapped = false;
+        IReadOnlyList<LiteralRef> literals = Array.Empty<LiteralRef>();
         if (_bootSupportsVisuals && _settings.HighlightMiniNotation)
         {
             var pre = Preprocessor.Wrap(raw, _services.Literals.NextId);
+            literals = pre.Literals;
             foreach (var lit in pre.Literals) _services.Literals.Register(doc, lit.Id, start + lit.Offset, lit.ContentLength);
             code = pre.Code;
             wrapped = pre.Literals.Count > 0;
@@ -391,7 +417,9 @@ public partial class MainWindow : Window
             // A string literal ended up somewhere tsctx can't go (e.g. a custom IsString type): run it unchanged.
             _console.Add(OutputKind.Info, "(highlighting is not available for this code; running it unchanged)");
             result = await _services.Ghci.EvalAsync(raw);
+            literals = Array.Empty<LiteralRef>();
         }
+        _services.CodeLog.Add(raw, result.Success, literals, _services.Time.Now);
 
         _flashRenderer.Flash(doc, start, raw.Length, result.Success);
         _errorRenderer.ClearRange(doc, start, start + raw.Length);
@@ -423,6 +451,7 @@ public partial class MainWindow : Window
         _muted.Clear();
         if (!_services.Ghci.IsReady) return;
         EchoInput("hush");
+        _services.CodeLog.Hush(_services.Time.Now);
         await _services.Ghci.EvalAsync("hush");
     }
 
@@ -509,11 +538,22 @@ public partial class MainWindow : Window
     private static bool SamePath(string? a, string? b) =>
         a is not null && b is not null && string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
-    private DocumentTab CreateTab(TextDocument document, string? path)
+    private DocumentTab CreateTab(TextDocument document, string? path, string? untitledName = null)
     {
-        var tab = new DocumentTab(document, path, path is null ? $"untitled-{++_untitledCounter}" : "");
+        var tab = new DocumentTab(document, path, path is not null ? "" : untitledName ?? $"untitled-{++_untitledCounter}");
         document.TextChanged += (_, _) =>
         {
+            // The VJ screen shows the block being typed (only while it is open: it costs a scan of the text).
+            if (_vj is not null && ReferenceEquals(Editor.Document, document))
+            {
+                var block = CodeBlocks.GetBlock(document.Text, Editor.TextArea.Caret.Line - 1);
+                if (block is not null)
+                {
+                    var first = document.GetLineByNumber(block.StartLine + 1);
+                    var last = document.GetLineByNumber(block.EndLine + 1);
+                    _services.CodeLog.SetDraft(document.GetText(first.Offset, last.EndOffset - first.Offset), _services.Time.Now);
+                }
+            }
             if (tab.Dirty) return;
             tab.Dirty = true;
             if (tab == _active) UpdateTitle();
@@ -778,33 +818,73 @@ public partial class MainWindow : Window
 
     private async void OnExplorerNewFile(string directory)
     {
-        var name = (await Dialogs.Prompt(this, "New Tidal file", $"File name (in {directory}):", "untitled.tidal", "Create"))?.Trim();
+        string suggested = FileOperations.UniqueName(directory, "untitled.tidal");
+        var name = (await Dialogs.Prompt(this, "New Tidal file", $"File name (in {directory}):", suggested, "Create"))?.Trim();
         if (string.IsNullOrEmpty(name)) return;
-        if (!Path.HasExtension(name)) name += ".tidal";
-        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            await Dialogs.ShowMessage(this, "Invalid name", $"\"{name}\" is not a valid file name.");
-            return;
-        }
-        string path = Path.Combine(directory, name);
-        if (File.Exists(path))
-        {
-            await Dialogs.ShowMessage(this, "File exists", $"{path} already exists.");
-            return;
-        }
+        name = FileOperations.TidalFileName(name);
+        string path;
         try
         {
-            await File.WriteAllTextAsync(path, "", new UTF8Encoding(false));
+            path = FileOperations.CreateFile(directory, name);
         }
-        catch (Exception e)
+        catch (Exception e) when (e is IOException or ArgumentException or UnauthorizedAccessException)
         {
-            await Dialogs.ShowMessage(this, "Could not create file", e.Message);
+            await Dialogs.ShowMessage(this, "Could not create the file", e.Message);
             return;
         }
         OpenFile(path);
-        Explorer.Refresh();
+        Explorer.Reveal(path);
     }
 
+    private async void OnExplorerNewFolder(string directory)
+    {
+        string suggested = FileOperations.UniqueName(directory, "New folder");
+        var name = (await Dialogs.Prompt(this, "New folder", $"Folder name (in {directory}):", suggested, "Create"))?.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+        try
+        {
+            Explorer.Reveal(FileOperations.CreateFolder(directory, name));
+        }
+        catch (Exception e) when (e is IOException or ArgumentException or UnauthorizedAccessException)
+        {
+            await Dialogs.ShowMessage(this, "Could not create the folder", e.Message);
+        }
+    }
+
+    private async void OnExplorerDelete(string path)
+    {
+        bool isFolder = Directory.Exists(path);
+        if (!isFolder && !File.Exists(path)) { Explorer.Refresh(); return; }
+        if (_settings.WorkingDirectory is { } wd && FileOperations.IsSameOrInside(wd, path))
+        {
+            await Dialogs.ShowMessage(this, "Can't delete the working directory",
+                $"{path} is (or contains) the working directory. Choose another working directory first.");
+            return;
+        }
+
+        var affected = _tabs.Where(t => t.Path is { } p && FileOperations.IsSameOrInside(p, path)).ToList();
+        string what = isFolder ? $"the folder \"{Path.GetFileName(path)}\" and everything in it" : $"\"{Path.GetFileName(path)}\"";
+        string where = OperatingSystem.IsWindows() ? "It goes to the Recycle Bin, so you can restore it from there." : "This can't be undone.";
+        string tabsNote = affected.Count == 0 ? ""
+            : affected.Any(t => t.Dirty)
+                ? $"\n\n{affected.Count} open tab{(affected.Count > 1 ? "s" : "")} will be closed, including unsaved changes."
+                : $"\n\n{affected.Count} open tab{(affected.Count > 1 ? "s" : "")} will be closed.";
+        if (!await Dialogs.Confirm(this, isFolder ? "Delete folder" : "Delete file", $"Delete {what}?\n\n{path}\n\n{where}{tabsNote}", "Delete"))
+            return;
+
+        try
+        {
+            bool recycled = await Task.Run(() => FileOperations.Delete(path));
+            foreach (var tab in affected) RemoveTab(tab);
+            _console.Add(OutputKind.Info, $"Deleted {path}{(recycled ? " (moved to the Recycle Bin)" : "")}");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            await Dialogs.ShowMessage(this, "Could not delete", $"{path}\n\n{e.Message}");
+        }
+        Explorer.Refresh();
+    }
     private void SetExplorerVisible(bool visible)
     {
         if (Explorer.IsVisible && !visible && MainGrid.ColumnDefinitions[0].ActualWidth > 0)
@@ -1186,6 +1266,81 @@ public partial class MainWindow : Window
         await StartSuperDirtAsync(interactive: true);
     }
 
+    private Synth.DrumWindow? _drums;
+
+    private void OnOpenDrums(object? sender, RoutedEventArgs e)
+    {
+        if (_drums is { IsVisible: true })
+        {
+            _drums.Activate();
+            return;
+        }
+        _drums = new Synth.DrumWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _drums.Closed += (_, _) => _drums = null;
+        _drums.Show();
+    }
+
+    private void OnOpenExample(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as MenuItem)?.Tag is string file) OpenExampleScript(file);
+    }
+
+    /// <summary>Opens a built-in example script in a new (unsaved) tab.</summary>
+    internal void OpenExampleScript(string fileName)
+    {
+        string text = TidalStudio.Core.Synth.ExampleScripts.Read(fileName);
+        if (text.Length == 0)
+        {
+            SetMessage($"Example {fileName} is missing from this build.");
+            return;
+        }
+        var tab = CreateTab(new TextDocument(text), null, Path.GetFileNameWithoutExtension(fileName));
+        AddTab(tab);
+        tab.Dirty = false;
+        RefreshTabs();
+        Activate();
+    }
+
+    private Synth.AcidWindow? _acid;
+
+    private void OnOpenAcid(object? sender, RoutedEventArgs e)
+    {
+        if (_acid is { IsVisible: true })
+        {
+            _acid.Activate();
+            return;
+        }
+        _acid = new Synth.AcidWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _acid.Closed += (_, _) => _acid = null;
+        _acid.Show();
+    }
+    private Vj.VjWindow? _vj;
+
+    private void OnOpenVj(object? sender, RoutedEventArgs e)
+    {
+        if (_vj is { IsVisible: true })
+        {
+            _vj.Activate();
+            return;
+        }
+        _vj = new Vj.VjWindow(_services);
+        _vj.Closed += (_, _) => { _vj = null; _settings.Save(); };
+        _vj.Show();
+    }
+
+    private Synth.FmWindow? _fm;
+
+    private void OnOpenFm(object? sender, RoutedEventArgs e)
+    {
+        if (_fm is { IsVisible: true })
+        {
+            _fm.Activate();
+            return;
+        }
+        _fm = new Synth.FmWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _fm.Closed += (_, _) => _fm = null;
+        _fm.Show();
+    }
     private Synth.SynthWindow? _synth;
 
     private void OnOpenSynth(object? sender, RoutedEventArgs e)
@@ -1296,6 +1451,7 @@ public partial class MainWindow : Window
                 _lastDirtProbe = DateTime.UtcNow;
                 _dirtHintShown = false;
                 SetDirtState(DirtState.Running);
+                LoadTidepoolSamples();
                 _console.Add(OutputKind.Info, $"SuperDirt is ready ({watch.Elapsed.TotalSeconds:0} s).");
                 SetMessage("SuperDirt is ready.");
                 return;
@@ -1305,6 +1461,29 @@ public partial class MainWindow : Window
         _console.Add(OutputKind.Error, _services.SuperDirt.IsRunning
             ? "SuperDirt did not answer within 2 minutes. Check the [sc] lines above for errors."
             : "SuperCollider stopped before SuperDirt was ready. Check the [sc] lines above for errors.");
+    }
+
+    /// <summary>
+    /// Sounds saved with Tidepool must survive a SuperDirt restart even when startup.scd doesn't load the samples
+    /// folder: load the folders it misses into the SuperDirt TidalStudio just started.
+    /// </summary>
+    private void LoadTidepoolSamples()
+    {
+        if (!_services.SuperDirt.IsRunning) return;
+        string root = _settings.SamplesFolder is { Length: > 0 } f ? f
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "samples");
+        if (!Directory.Exists(root)) return;
+        string? startup = Core.Completion.SampleLibrary.StartupScriptPath();
+        string script = "";
+        try { if (startup is not null && File.Exists(startup)) script = File.ReadAllText(startup); }
+        catch (IOException) { }
+        var missing = Directory.EnumerateDirectories(root)
+            .Where(d => Directory.EnumerateFiles(d, "*.wav").Any() && !StartupScript.LoadsFolder(script, d))
+            .ToList();
+        if (missing.Count == 0) return;
+        foreach (var dir in missing)
+            _services.SuperDirt.TrySendCode($"~dirt.loadSoundFiles(\"{dir.Replace('\\', '/')}\");");
+        _console.Add(OutputKind.Info, $"Loaded your Tidepool sounds: {string.Join(", ", missing.Select(Path.GetFileName))}");
     }
 
     /// <summary>

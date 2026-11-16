@@ -113,6 +113,7 @@ public sealed class EnvelopeView : Control
 public sealed class WaveformView : Control
 {
     public RenderedNote? Note { get; set; }
+    public string Hint { get; set; } = "Preview (Space) or click a key to hear the sound";
 
     public override void Render(DrawingContext dc)
     {
@@ -122,7 +123,7 @@ public sealed class WaveformView : Control
         var labelBrush = new SolidColorBrush(Color.FromArgb(150, 200, 208, 224));
         if (note is null || note.Left.Length == 0)
         {
-            var hint = new FormattedText("Preview (Space) or click a key to hear the sound", System.Globalization.CultureInfo.InvariantCulture,
+            var hint = new FormattedText(Hint, System.Globalization.CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight, new Typeface("Inter"), 11, labelBrush);
             dc.DrawText(hint, new Point((b.Width - hint.Width) / 2, (b.Height - hint.Height) / 2));
             return;

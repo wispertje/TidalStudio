@@ -3,27 +3,38 @@ namespace TidalStudio.Core.Synth;
 /// <summary>Factory presets: starting points that show what the synth can do.</summary>
 public static class SynthPresets
 {
-    public static readonly IReadOnlyList<(string Name, Func<SynthPatch> Create)> All = new (string, Func<SynthPatch>)[]
-    {
-        ("Init", () => new SynthPatch()),
-        ("Supersaw lead", SupersawLead),
-        ("Pluck", Pluck),
-        ("Warm pad", WarmPad),
-        ("Vowel pad", VowelPad),
-        ("Sub bass", SubBass),
-        ("Reese bass", ReeseBass),
-        ("Wobble bass", WobbleBass),
-        ("Sync lead", SyncLead),
-        ("Glass bell", GlassBell),
-        ("Digital keys", DigitalKeys),
-        ("Kick", Kick),
-        ("Hat", Hat),
-    };
+    /// <summary>Presets by category, in menu order.</summary>
+    public static readonly IReadOnlyList<(string Category, IReadOnlyList<(string Name, Func<SynthPatch> Create)> Presets)> Groups =
+        new (string, IReadOnlyList<(string, Func<SynthPatch>)>)[]
+        {
+            ("Basics", new (string, Func<SynthPatch>)[]
+            {
+                ("Init", () => new SynthPatch()),
+                ("Supersaw lead", SupersawLead),
+                ("Pluck", Pluck),
+                ("Warm pad", WarmPad),
+                ("Vowel pad", VowelPad),
+                ("Sub bass", SubBass),
+                ("Reese bass", ReeseBass),
+                ("Wobble bass", WobbleBass),
+                ("Sync lead", SyncLead),
+                ("Glass bell", GlassBell),
+                ("Digital keys", DigitalKeys),
+                ("Kick", Kick),
+                ("Hat", Hat),
+            }),
+            ("Acid techno", AcidPresets.All),
+            ("Retro", RetroPresets.All),
+            ("Synth pop", PopPresets.All),
+        };
 
+    /// <summary>Every preset, in menu order.</summary>
+    public static readonly IReadOnlyList<(string Name, Func<SynthPatch> Create)> All =
+        Groups.SelectMany(g => g.Presets).ToList();
     public static SynthPatch Create(string name) =>
         (All.FirstOrDefault(p => p.Name == name).Create ?? (() => new SynthPatch()))();
 
-    private static SynthPatch Base(string name, Action<SynthPatch> setup)
+    internal static SynthPatch Base(string name, Action<SynthPatch> setup)
     {
         var p = new SynthPatch { Name = name };
         foreach (var o in p.Oscillators.Skip(1)) o.Enabled = false;
