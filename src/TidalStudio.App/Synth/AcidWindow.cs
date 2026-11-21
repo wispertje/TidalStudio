@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -37,14 +36,13 @@ public sealed class AcidWindow : Window
     private readonly PreviewPlayer _player = new();
     private readonly DispatcherTimer _autoPreviewTimer;
     private readonly DispatcherTimer _playheadTimer;
-    private readonly Stopwatch _playClock = new();
     private readonly Random _random = new();
 
     private AcidBox _box;
     private int _slot;
     private int _renderVersion;
     private bool _playing;
-    private double _playSeconds;
+    private bool _rendering, _renderAgain;
     private bool _loading;
 
     private readonly ComboBox _sounds = new() { MinWidth = 190, PlaceholderText = "Choose a sound…" };
@@ -93,9 +91,9 @@ public sealed class AcidWindow : Window
         _restartOnSave.IsChecked = _settings.SynthRestartOnSave;
         _restartOnSave.IsCheckedChanged += (_, _) => _settings.SynthRestartOnSave = _restartOnSave.IsChecked == true;
         ToolTip.SetTip(_restartOnSave, "After saving, make SuperDirt load the loops (restarting a SuperCollider that TidalStudio didn't start).");
-        ToolTip.SetTip(_autoPreview, "Play the pattern again after every change");
+        ToolTip.SetTip(_autoPreview, "Start playing the pattern after every change. While it plays, changes are always heard right away.");
 
-        _grid.Edited += () => { RefreshSlots(); UpdateInfo(); };
+        _grid.Edited += () => { RefreshSlots(); UpdateInfo(); LiveChange(); };
         _grid.Committed += Commit;
 
         Content = BuildLayout();
@@ -386,7 +384,7 @@ public sealed class AcidWindow : Window
         normalize.IsCheckedChanged += (_, _) => { _box.Normalize = normalize.IsChecked == true; Commit(); };
         var rates = new List<string> { "44100", "48000" };
         var rate = new ComboBox { ItemsSource = rates, SelectedItem = _box.SampleRate.ToString(CultureInfo.InvariantCulture), FontSize = 12 };
-        rate.SelectionChanged += (_, _) => { if (rate.SelectedItem is string s) _box.SampleRate = int.Parse(s, CultureInfo.InvariantCulture); };
+        rate.SelectionChanged += (_, _) => { if (rate.SelectedItem is string s) { _box.SampleRate = int.Parse(s, CultureInfo.InvariantCulture); Commit(); } };
         var outBody = new StackPanel { Spacing = 6 };
         outBody.Children.Add(SynthWindow.KnobRow(
             K("Level", 0, 1, 0.9, () => v.Level, x => v.Level = x, SynthWindow.Percent, accent: OutColor)));
@@ -430,18 +428,26 @@ public sealed class AcidWindow : Window
             Bipolar = bipolar, Format = format, Accent = accent ?? VoiceColor,
         };
         knob.Value = get();
-        knob.ValueChanged += set;
+        knob.ValueChanged += x => { set(x); LiveChange(); };
         knob.Committed += Commit;
         return knob;
     }
 
     // ------------------------------------------------------------------ playing
 
+    /// <summary>A change is finished: update the playing loop, or start playing when Auto-play is on.</summary>
     private void Commit()
     {
+        if (_playing) { Play(); return; }
         if (_autoPreview.IsChecked != true) return;
         _autoPreviewTimer.Stop();
         _autoPreviewTimer.Start();
+    }
+
+    /// <summary>A change in progress (a knob being turned, the grid being painted): heard right away while playing.</summary>
+    private void LiveChange()
+    {
+        if (_playing) Play();
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
@@ -474,38 +480,53 @@ public sealed class AcidWindow : Window
         _play.Content = "▶ Play";
     }
 
-    /// <summary>Renders the selected pattern repeated for about 10 seconds and plays it, with a moving playhead.</summary>
+    /// <summary>
+    /// Renders the selected pattern as one loop and plays it until stopped, with a moving playhead. While it already plays,
+    /// the new render replaces the loop at the same position, so knob and grid changes are heard without restarting.
+    /// Only one render runs at a time: changes made meanwhile are rendered right after it, with the latest settings.
+    /// </summary>
     private async void Play()
     {
-        if (Pattern.IsEmpty) { SetStatus("This pattern is empty: click the grid to add notes, or press R for a random line."); return; }
-        int version = ++_renderVersion;
-        var box = _box.Clone();
-        int slot = _slot;
-        double loopSeconds = Pattern.Length * box.StepSeconds;
-        int repeats = Math.Clamp((int)Math.Ceiling(10 / loopSeconds), 1, 16);
-        var rendered = await Task.Run(() => AcidEngine.Render(box, slot, repeats));
-        if (version != _renderVersion) return;
-        _wave.Note = rendered;
-        _wave.InvalidateVisual();
-        _player.Play(rendered);
-        if (_player.Error is { } err) { SetStatus(err); return; }
-        _playing = true;
-        _play.Content = "■ Stop";
-        _playSeconds = rendered.Seconds;
-        _playClock.Restart();
-        _playheadTimer.Start();
+        if (_rendering) { _renderAgain = true; return; }
+        _rendering = true;
+        try
+        {
+            do
+            {
+                _renderAgain = false;
+                if (Pattern.IsEmpty)
+                {
+                    if (_playing) StopPlaying();
+                    SetStatus("This pattern is empty: click the grid to add notes, or press R for a random line.");
+                    return;
+                }
+                int version = _renderVersion;
+                var box = _box.Clone();
+                int slot = _slot;
+                var rendered = await Task.Run(() => AcidEngine.Render(box, slot));
+                if (version != _renderVersion) continue; // stopped meanwhile (plays again only if asked since)
+                _wave.Note = rendered;
+                _wave.InvalidateVisual();
+                _player.PlayLoop(rendered, keepPosition: _playing);
+                if (_player.Error is { } err) { StopPlaying(); SetStatus(err); return; }
+                if (!_playing)
+                {
+                    _playing = true;
+                    _play.Content = "■ Stop";
+                    _playheadTimer.Start();
+                }
+            }
+            while (_renderAgain);
+        }
+        finally { _rendering = false; }
     }
 
     private void UpdatePlayhead()
     {
-        double t = _playClock.Elapsed.TotalSeconds - 0.06; // output latency
-        if (t >= _playSeconds) { StopPlaying(); return; }
         int step = -1;
-        if (t >= 0)
+        if (_player.PositionSeconds is { } inLoop)
         {
             var p = Pattern;
-            double loop = p.Length * _box.StepSeconds;
-            double inLoop = t % loop;
             int sr = 1000;
             int ms = (int)(inLoop * sr);
             for (int i = p.Length - 1; i >= 0; i--)
