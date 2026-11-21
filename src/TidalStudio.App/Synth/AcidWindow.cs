@@ -19,7 +19,7 @@ namespace TidalStudio.App.Synth;
 /// Tidepool Acid: a bassline box with accent and slide. Each of its 8 patterns is saved as one seamless loop in one
 /// SuperDirt sound ("acidloop" # n 0 = pattern A, n 1 = B, …), to play in time with loopAt / chop.
 /// </summary>
-public sealed class AcidWindow : Window
+public sealed class AcidWindow : Window, ITempoFollower
 {
     private static readonly IBrush SlotBrush = new SolidColorBrush(Color.Parse("#1F232C"));
     private static readonly IBrush SlotSelectedBrush = new SolidColorBrush(Color.Parse("#2E3A22"));
@@ -33,10 +33,10 @@ public sealed class AcidWindow : Window
     private readonly Action _samplesChanged;
     private readonly Action<OutputKind, string> _log;
     private readonly Func<string, Task<(bool Ok, string Message)>> _restartSuperDirt;
-    private readonly PreviewPlayer _player = new();
     private readonly DispatcherTimer _autoPreviewTimer;
     private readonly DispatcherTimer _playheadTimer;
     private readonly Random _random = new();
+    private readonly Func<string, bool, Task>? _insertCode;
 
     private AcidBox _box;
     private int _slot;
@@ -47,7 +47,7 @@ public sealed class AcidWindow : Window
 
     private readonly ComboBox _sounds = new() { MinWidth = 190, PlaceholderText = "Choose a sound…" };
     private readonly TextBox _name = new() { Width = 120 };
-    private readonly NumericUpDown _bpm = new() { Minimum = 60, Maximum = 220, Increment = 1, FormatString = "0", Width = 110 };
+    private readonly NumericUpDown _bpm = new() { Minimum = 40, Maximum = 300, Increment = 1, FormatString = "0", Width = 110 };
     private readonly Button _play = SynthWindow.AccentButton("▶ Play", "Play the pattern as a loop (Space)");
     private readonly CheckBox _autoPreview = new() { Content = "Auto-play", IsChecked = true };
     private readonly CheckBox _restartOnSave = new() { Content = "Restart SuperDirt after saving", FontSize = 12 };
@@ -64,14 +64,17 @@ public sealed class AcidWindow : Window
     private readonly TextBlock _folderLabel = new() { FontSize = 11, Foreground = SynthWindow.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
 
     public AcidWindow(AppServices services, Action samplesChanged, Action<OutputKind, string> log,
-        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt)
+        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt, Func<string, bool, Task>? insertCode = null)
     {
+        _insertCode = insertCode;
         _services = services;
         _settings = services.Settings;
         _samplesChanged = samplesChanged;
         _log = log;
         _restartSuperDirt = restartSuperDirt;
         _box = LoadLastBox();
+        // One tempo for Tidepool Acid and every open sequencer, so they play in time together.
+        _box.Bpm = Transport.Join(this, _box.Bpm);
         _grid = new AcidGridView(() => _box, () => Pattern);
 
         Title = "Tidepool Acid — bassline box";
@@ -103,8 +106,24 @@ public sealed class AcidWindow : Window
         {
             _settings.AcidBoxJson = _box.ToJson();
             _playheadTimer.Stop();
-            _player.Dispose();
+            Transport.Leave(this);
         };
+    }
+
+    private static SequencerTransport Transport => SequencerTransport.Shared;
+
+    public string TempoName => "Tidepool Acid";
+
+    /// <summary>A sequencer changed the shared tempo.</summary>
+    public void FollowTempo(double bpm, string changedBy)
+    {
+        _box.Bpm = bpm;
+        _loading = true;
+        try { _bpm.Value = (decimal)bpm; }
+        finally { _loading = false; }
+        UpdateInfo();
+        SetStatus($"Tempo {bpm:0.#} bpm, set in {changedBy}: Tidepool Acid and the sequencers share one tempo, so they play in time.");
+        if (_playing) Play();
     }
 
     private AcidPattern Pattern => _box.Patterns[Math.Clamp(_slot, 0, AcidBox.Slots - 1)];
@@ -126,10 +145,11 @@ public sealed class AcidWindow : Window
         {
             if (_loading || _bpm.Value is not { } v) return;
             _box.Bpm = (double)v;
+            Transport.SetBpm(_box.Bpm, this);
             UpdateInfo();
             Commit();
         };
-        ToolTip.SetTip(_bpm, "Tempo the loops are rendered at. Use the same tempo in Tidal (setcps (bpm/60/4)), or let loopAt stretch them.");
+        ToolTip.SetTip(_bpm, "Tempo the loops are rendered at, shared with every open sequencer so they play in time. Use the same tempo in Tidal (setcps (bpm/60/4)), or let loopAt stretch them.");
 
         _play.Click += (_, _) => TogglePlay();
         var save = SynthWindow.AccentButton("💾 Save loops to SuperDirt", "Render every pattern to a loop in your samples folder (Ctrl+S)");
@@ -194,6 +214,19 @@ public sealed class AcidWindow : Window
         patternBar.Children.Add(SynthWindow.Labelled("Key", _root));
         patternBar.Children.Add(SynthWindow.Labelled("Scale", _scale));
         foreach (var b in new[] { random, mutate, clear, left, right, down, up, copy }) patternBar.Children.Add(b);
+        var copyCode = SynthWindow.SmallButton("📋 Copy code", "Copy Tidal code that plays this pattern's saved loop in time (loopAt + chop)");
+        copyCode.Click += async (_, _) =>
+        {
+            if (Clipboard is { } clipboard) await clipboard.SetTextAsync(AcidLines.Example(_box, _slot));
+            SetStatus($"Code for pattern {AcidBox.SlotNames[_slot]} copied. Save the loops (Ctrl+S) so SuperDirt has them.");
+        };
+        patternBar.Children.Add(copyCode);
+        if (_insertCode is not null)
+        {
+            var insert = SynthWindow.SmallButton("Insert into script", "Put the code for this pattern in the current script");
+            insert.Click += async (_, _) => await _insertCode(AcidLines.Example(_box, _slot), false);
+            patternBar.Children.Add(insert);
+        }
 
         var gridPanel = new StackPanel { Spacing = 6 };
         gridPanel.Children.Add(patternBar);
@@ -243,7 +276,7 @@ public sealed class AcidWindow : Window
         try
         {
             _name.Text = _box.Name;
-            _bpm.Value = (decimal)Math.Clamp(_box.Bpm, 60, 220);
+            _bpm.Value = (decimal)Math.Clamp(_box.Bpm, 40, 300);
             _root.SelectedIndex = Math.Clamp(_box.Root - 24, 0, 24);
             _scale.SelectedIndex = Enum.GetValues<AcidScale>().ToList().IndexOf(_box.Scale);
             _steps.Value = Pattern.Length;
@@ -472,7 +505,7 @@ public sealed class AcidWindow : Window
     private void StopPlaying()
     {
         ++_renderVersion;
-        _player.Stop();
+        Transport.Stop(this);
         _playing = false;
         _playheadTimer.Stop();
         _grid.PlayStep = -1;
@@ -503,14 +536,16 @@ public sealed class AcidWindow : Window
                 int version = _renderVersion;
                 var box = _box.Clone();
                 int slot = _slot;
+                int steps = box.Patterns[slot].Length;
                 var rendered = await Task.Run(() => AcidEngine.Render(box, slot));
                 if (version != _renderVersion) continue; // stopped meanwhile (plays again only if asked since)
                 _wave.Note = rendered;
                 _wave.InvalidateVisual();
-                _player.PlayLoop(rendered, keepPosition: _playing);
-                if (_player.Error is { } err) { StopPlaying(); SetStatus(err); return; }
+                if (Transport.Play(this, rendered, steps) is { } err) { StopPlaying(); SetStatus(err); return; }
                 if (!_playing)
                 {
+                    var others = Transport.Others(this).Where(f => Transport.IsPlaying(f)).Select(f => f.TempoName).ToList();
+                    if (others.Count > 0) SetStatus($"Playing in time with {string.Join(" and ", others)} ({Transport.Bpm:0.#} bpm).");
                     _playing = true;
                     _play.Content = "■ Stop";
                     _playheadTimer.Start();
@@ -524,8 +559,9 @@ public sealed class AcidWindow : Window
     private void UpdatePlayhead()
     {
         int step = -1;
-        if (_player.PositionSeconds is { } inLoop)
+        if (Transport.StepIn(this) is { } stepNow)
         {
+            double inLoop = stepNow * _box.StepSeconds;
             var p = Pattern;
             int sr = 1000;
             int ms = (int)(inLoop * sr);
@@ -608,6 +644,7 @@ public sealed class AcidWindow : Window
             if (sound.Apply is null) return;
             sound.Apply(_box);
         }
+        Transport.SetBpm(_box.Bpm, this); // a loaded box or the pop demo brings its own tempo
         RebuildAll();
         if (!Pattern.IsEmpty) Play();
     }

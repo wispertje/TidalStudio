@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Xml;
@@ -112,6 +112,14 @@ public partial class MainWindow : Window
     {
         _services.Ticker.Attach(this);
         _services.Ticker.Subscribe(OnFrame);
+
+        int shots = Array.IndexOf(args, "--sequencer-shots");
+        if (shots >= 0 && shots + 1 < args.Length)
+        {
+            NewDocument(withSample: false);
+            _ = RunSequencerShotsAsync(args[shots + 1]);
+            return;
+        }
 
         int selfTest = Array.IndexOf(args, "--selftest");
         _selfTestAllowRestart = selfTest >= 0 && args.Contains("--allow-restart");
@@ -1285,7 +1293,7 @@ public partial class MainWindow : Window
             _drums.Activate();
             return;
         }
-        _drums = new Synth.DrumWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _drums = new Synth.DrumWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync, InsertSuggestionAsync);
         _drums.Closed += (_, _) => _drums = null;
         _drums.Show();
     }
@@ -1320,7 +1328,7 @@ public partial class MainWindow : Window
             _acid.Activate();
             return;
         }
-        _acid = new Synth.AcidWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _acid = new Synth.AcidWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync, InsertSuggestionAsync);
         _acid.Closed += (_, _) => _acid = null;
         _acid.Show();
     }
@@ -1460,7 +1468,7 @@ public partial class MainWindow : Window
             _fm.Activate();
             return;
         }
-        _fm = new Synth.FmWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _fm = new Synth.FmWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync, InsertSuggestionAsync);
         _fm.Closed += (_, _) => _fm = null;
         _fm.Show();
     }
@@ -1473,7 +1481,7 @@ public partial class MainWindow : Window
             open.Activate();
             return;
         }
-        _synth = new Synth.SynthWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync);
+        _synth = new Synth.SynthWindow(_services, () => _completionCatalog.InvalidateSamples(), (kind, text) => _console.Add(kind, text), RestartSuperDirtAsync, InsertSuggestionAsync);
         _synth.Closed += (_, _) => _synth = null;
         _synth.Show();
     }

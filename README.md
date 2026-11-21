@@ -148,6 +148,19 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     sounds don't alias.
   - 23 presets in keys & mallets, bass, brass & leads, pads & bells, percussion and synth pop (sound names start with
     `fm`: `fmepiano`, `fmsolid`, `fmbell`, `fmpopep`, …). Saved like Tidepool: one sample per note, `n` picks the octave.
+- **Sequencers** (🎹 Sequencer in Tidepool and Tidepool FM, 🥁 Beat sequencer in Tidepool Drums): a separate window to
+  try out melodies and beats with the sound you are designing, and get them as Tidal code.
+  - A **piano roll** (click to add a note and drag its length, drag to move, right-click deletes; key and scale are
+    highlighted) or a **drum grid** (click to add hits, right-click for soft / normal / accent, mute per drum).
+    Random, Mutate, shift, transpose, Double and undo/redo help to experiment.
+  - It loops with the synth's current sound, rendered the way SuperDirt plays the saved samples (closest rendered note
+    + `note`, `legato` / `cut`, `gain`, `swingBy`), and **turning knobs in the synth window is heard while it plays**.
+  - The **code** below it (a `do` block with `setcps` and the pattern, on the channel you choose) can be copied, or
+    inserted into the current script and run. Save the sound in the synth so SuperDirt has the samples you heard.
+  - Tidepool Acid has its own step editor; its "Copy code" / "Insert into script" give the loop code for a pattern.
+  - **Open sequencers play in time together** (Tidepool Acid included): their loops are mixed on one shared clock, a
+    loop you start joins in where it would be had it been playing all along (like a pattern in Tidal), and they share
+    one tempo — change the BPM in one window and the others follow; a newly opened one takes the tempo in use.
 - **VJ screen** (View ▸ VJ screen…, `Ctrl+Shift+V`): visuals for a performance. Drag the window to the projector and
   press `F11`.
   - **Driven by the music**: what Windows plays (loopback capture: bass, mid, high and beats from the kick), and every

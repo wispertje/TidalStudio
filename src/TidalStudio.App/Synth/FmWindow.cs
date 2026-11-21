@@ -46,6 +46,9 @@ public sealed class FmWindow : Window
     private readonly ComboBox _noteSets = new() { MinWidth = 120 };
     private readonly CheckBox _autoPreview = new() { Content = "Auto-preview", IsChecked = true };
     private readonly CheckBox _restartOnSave = new() { Content = "Restart SuperDirt after saving", FontSize = 12 };
+
+    private readonly Func<string, bool, Task>? _insertCode;
+    private SequencerWindow? _sequencer;
     private readonly WaveformView _wave = new() { Height = 70 };
     private readonly KeyboardView _keys = new();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
@@ -63,8 +66,9 @@ public sealed class FmWindow : Window
     };
 
     public FmWindow(AppServices services, Action samplesChanged, Action<OutputKind, string> log,
-        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt)
+        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt, Func<string, bool, Task>? insertCode = null)
     {
+        _insertCode = insertCode;
         _services = services;
         _settings = services.Settings;
         _samplesChanged = samplesChanged;
@@ -93,6 +97,7 @@ public sealed class FmWindow : Window
         Closing += (_, _) =>
         {
             _settings.FmPatchJson = _patch.ToJson();
+            _sequencer?.Close();
             _player.Dispose();
         };
     }
@@ -110,7 +115,7 @@ public sealed class FmWindow : Window
         var random = SynthWindow.SmallButton("Randomise", "A random FM sound (Ctrl+R)");
         random.Click += (_, _) => Randomise();
 
-        _name.TextChanged += (_, _) => { _patch.Name = _name.Text?.Trim() ?? ""; UpdateStatusHint(); };
+        _name.TextChanged += (_, _) => { _patch.Name = _name.Text?.Trim() ?? ""; UpdateStatusHint(); _sequencer?.SourceChanged(); };
         ToolTip.SetTip(_name, "Sound name in Tidal: s \"name\". Lowercase letters, digits, - and _.");
 
         _noteSets.ItemsSource = NoteSets.Select(s => s.Label).ToList();
@@ -125,6 +130,7 @@ public sealed class FmWindow : Window
             _noteSets.SelectedIndex = set >= 0 ? set : NoteSets.Length - 1;
             UpdateKeyboardMarks();
             UpdateStatusHint();
+            _sequencer?.SourceChanged();
         };
         ToolTip.SetTip(_notes, "Notes to render, one sample each, in Tidal note names (c5 = note 0). n picks them in this order.");
 
@@ -146,6 +152,9 @@ public sealed class FmWindow : Window
         top.Children.Add(SynthWindow.Gap(8));
         top.Children.Add(save);
         top.Children.Add(_restartOnSave);
+        var sequencer = SynthWindow.AccentButton("🎹 Sequencer", "Open the piano roll: play melodies with this sound, live, and get the Tidal code");
+        sequencer.Click += (_, _) => OpenSequencer();
+        top.Children.Add(sequencer);
         top.Children.Add(SynthWindow.ExampleButton(this, "05-tidepool-fm.tidal", "how to play FM samples: keys, chords, basses, bells, percussion"));
 
         _keys.NotePressed += midi => { _lastKey = midi; Preview(midi); };
@@ -193,6 +202,7 @@ public sealed class FmWindow : Window
 
     private void RebuildSections()
     {
+        _sequencer?.SourceChanged();
         _refreshers.Clear();
         _opPanels.Clear();
         var rows = new StackPanel { Margin = new Thickness(12, 0, 12, 0), Spacing = 10 };
@@ -422,11 +432,13 @@ public sealed class FmWindow : Window
     private void Changed()
     {
         foreach (var refresh in _refreshers) refresh();
+        _sequencer?.SourceChanged();
     }
 
     private void Commit()
     {
-        if (_autoPreview.IsChecked != true) return;
+        _sequencer?.SourceChanged();
+        if (_autoPreview.IsChecked != true || _sequencer is { IsPlaying: true }) return;
         _autoPreviewTimer.Stop();
         _autoPreviewTimer.Start();
     }
@@ -437,6 +449,17 @@ public sealed class FmWindow : Window
         if (e.Key == Key.Space && e.KeyModifiers == KeyModifiers.None) { e.Handled = true; Preview(); }
         else if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; _ = SaveAsync(); }
         else if (e.Key == Key.R && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; Randomise(); }
+    }
+
+
+    /// <summary>Opens the sequencer for this sound (or brings it to the front).</summary>
+    internal SequencerWindow OpenSequencer()
+    {
+        if (_sequencer is { } open) { open.Activate(); return open; }
+        _sequencer = SequencerWindow.ForMelody("Tidepool FM", _settings.FmSequenceJson, json => _settings.FmSequenceJson = json, _insertCode, () => { var patch = _patch.Clone(); return new MelodicSnapshot(patch.Name, SynthPatch.ParseNotes(patch.Notes), m => FmEngine.Render(patch, m)); });
+        _sequencer.Closed += (_, _) => _sequencer = null;
+        _sequencer.Show(this);
+        return _sequencer;
     }
 
     private async void Preview(int? midi = null)

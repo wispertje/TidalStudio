@@ -69,9 +69,13 @@ public sealed class SynthWindow : Window
     private readonly Func<string, Task<(bool Ok, string Message)>> _restartSuperDirt;
     private readonly CheckBox _restartOnSave = new() { Content = "Restart SuperDirt after saving", FontSize = 12 };
 
+    private readonly Func<string, bool, Task>? _insertCode;
+    private SequencerWindow? _sequencer;
+
     public SynthWindow(AppServices services, Action samplesChanged, Action<OutputKind, string> log,
-        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt)
+        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt, Func<string, bool, Task>? insertCode = null)
     {
+        _insertCode = insertCode;
         _services = services;
         _settings = services.Settings;
         _samplesChanged = samplesChanged;
@@ -102,6 +106,7 @@ public sealed class SynthWindow : Window
         Closing += (_, _) =>
         {
             SaveLastPatch();
+            _sequencer?.Close();
             _player.Dispose();
         };
     }
@@ -121,7 +126,7 @@ public sealed class SynthWindow : Window
         random.Click += (_, _) => Randomise();
 
         _name.Text = _patch.Name;
-        _name.TextChanged += (_, _) => { _patch.Name = _name.Text?.Trim() ?? ""; UpdateStatusHint(); };
+        _name.TextChanged += (_, _) => { _patch.Name = _name.Text?.Trim() ?? ""; UpdateStatusHint(); _sequencer?.SourceChanged(); };
         ToolTip.SetTip(_name, "Sound name in Tidal: s \"name\". Lowercase letters, digits, - and _.");
 
         _noteSets.ItemsSource = NoteSets.Select(s => s.Label).ToList();
@@ -137,6 +142,7 @@ public sealed class SynthWindow : Window
             _noteSets.SelectedIndex = set >= 0 ? set : NoteSets.Length - 1;
             UpdateKeyboardMarks();
             UpdateStatusHint();
+            _sequencer?.SourceChanged();
         };
         ToolTip.SetTip(_notes, "Notes to render, one sample each, in Tidal note names (c5 = note 0). n picks them in this order.");
 
@@ -158,6 +164,9 @@ public sealed class SynthWindow : Window
         top.Children.Add(Gap(8));
         top.Children.Add(save);
         top.Children.Add(_restartOnSave);
+        var sequencer = AccentButton("🎹 Sequencer", "Open the piano roll: play melodies with this sound, live, and get the Tidal code");
+        sequencer.Click += (_, _) => OpenSequencer();
+        top.Children.Add(sequencer);
         top.Children.Add(ExampleButton(this, "01-tidepool-synth.tidal", "how to play Tidepool samples: n, note, chords, arpeggios, basses, effects"));
 
         // Bottom: waveform + keyboard, then status.
@@ -208,6 +217,7 @@ public sealed class SynthWindow : Window
     /// <summary>Builds every section from the current patch (after loading a preset, all controls change).</summary>
     private void RebuildSections()
     {
+        _sequencer?.SourceChanged();
         _refreshers.Clear();
         _sectionMap.Clear();
         var rows = new StackPanel { Margin = new Thickness(12, 0, 12, 0), Spacing = 10 };
@@ -562,12 +572,14 @@ public sealed class SynthWindow : Window
     private void Changed()
     {
         foreach (var refresh in _refreshers) refresh();
+        _sequencer?.SourceChanged();
     }
 
     /// <summary>A gesture finished: re-render for auto-preview.</summary>
     private void Commit()
     {
-        if (_autoPreview.IsChecked != true) return;
+        _sequencer?.SourceChanged();
+        if (_autoPreview.IsChecked != true || _sequencer is { IsPlaying: true }) return;
         _autoPreviewTimer.Stop();
         _autoPreviewTimer.Start();
     }
@@ -634,6 +646,17 @@ public sealed class SynthWindow : Window
         _patch.Fx = new() { ChorusMix = r.NextDouble() * 0.5, DelayMix = r.NextDouble() < 0.4 ? r.NextDouble() * 0.4 : 0, DelayTime = 0.125 * r.Next(1, 4), ReverbMix = r.NextDouble() * 0.5, ReverbSize = r.NextDouble() };
         RebuildSections();
         Preview();
+    }
+
+
+    /// <summary>Opens the sequencer for this sound (or brings it to the front).</summary>
+    internal SequencerWindow OpenSequencer()
+    {
+        if (_sequencer is { } open) { open.Activate(); return open; }
+        _sequencer = SequencerWindow.ForMelody("Tidepool", _settings.SynthSequenceJson, json => _settings.SynthSequenceJson = json, _insertCode, () => { var patch = _patch.Clone(); return new MelodicSnapshot(patch.Name, SynthPatch.ParseNotes(patch.Notes), m => SynthEngine.Render(patch, m)); });
+        _sequencer.Closed += (_, _) => _sequencer = null;
+        _sequencer.Show(this);
+        return _sequencer;
     }
 
     // ------------------------------------------------------------------ presets

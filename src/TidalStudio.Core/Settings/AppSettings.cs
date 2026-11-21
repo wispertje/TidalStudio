@@ -42,6 +42,10 @@ public sealed class AppSettings
     public string? AcidBoxJson { get; set; }
     /// <summary>The FM patch that was open last in Tidepool FM.</summary>
     public string? FmPatchJson { get; set; }
+    /// <summary>The sequencer's piano roll for Tidepool, for Tidepool FM, and the beat for Tidepool Drums.</summary>
+    public string? SynthSequenceJson { get; set; }
+    public string? FmSequenceJson { get; set; }
+    public string? DrumBeatJson { get; set; }
     /// <summary>The VJ screen's scenes, effects and code display.</summary>
     public TidalStudio.Core.Vj.VjOptions Vj { get; set; } = new();
 

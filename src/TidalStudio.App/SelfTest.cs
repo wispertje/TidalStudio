@@ -536,6 +536,70 @@ public partial class MainWindow
         await Task.Delay(400);
     }
 
+    /// <summary>
+    /// "--sequencer-shots &lt;outdir&gt;": opens the sequencer of Tidepool, Tidepool FM and Tidepool Drums, renders each loop
+    /// offline (nothing is played), screenshots the windows and writes the generated code. Settings are not saved.
+    /// </summary>
+    private async Task RunSequencerShotsAsync(string outDir)
+    {
+        Directory.CreateDirectory(outDir);
+        var log = new List<string>();
+        Func<string, Task<(bool Ok, string Message)>> noRestart = _ => Task.FromResult((false, "(skipped)"));
+        try
+        {
+            var makers = new (string Name, Func<Window> Create, Func<Window, Synth.SequencerWindow> Open)[]
+            {
+                ("synth", () => new Synth.SynthWindow(_services, () => { }, (_, t) => log.Add("[synth] " + t), noRestart), w => ((Synth.SynthWindow)w).OpenSequencer()),
+                ("fm", () => new Synth.FmWindow(_services, () => { }, (_, t) => log.Add("[fm] " + t), noRestart), w => ((Synth.FmWindow)w).OpenSequencer()),
+                ("drums", () => new Synth.DrumWindow(_services, () => { }, (_, t) => log.Add("[drums] " + t), noRestart), w => ((Synth.DrumWindow)w).OpenSequencer()),
+            };
+            foreach (var (name, create, open) in makers)
+            {
+                var (owner, seq) = await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    var w = create();
+                    w.Show();
+                    return (w, open(w));
+                });
+                await Task.Delay(1500);
+                await Dispatcher.UIThread.InvokeAsync(() => Render(seq, Path.Combine(outDir, $"seq-{name}.png")));
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var loop = await Dispatcher.UIThread.InvokeAsync(seq.RenderLoopAsync);
+                float peak = loop.Left.Concat(loop.Right).Select(Math.Abs).DefaultIfEmpty(0).Max();
+                log.Add($"{name}: loop {loop.Seconds:0.00} s rendered in {watch.ElapsedMilliseconds} ms, peak {peak:0.00}");
+                log.Add($"{name} code:\n{await Dispatcher.UIThread.InvokeAsync(() => seq.CodeText)}");
+                await Dispatcher.UIThread.InvokeAsync(seq.Randomise);
+                await Task.Delay(300);
+                await Dispatcher.UIThread.InvokeAsync(() => Render(seq, Path.Combine(outDir, $"seq-{name}-random.png")));
+                log.Add($"{name} random code:\n{await Dispatcher.UIThread.InvokeAsync(() => seq.CodeText)}");
+                await Dispatcher.UIThread.InvokeAsync(owner.Close);
+            }
+
+            // Two sequencers open together share one tempo.
+            var (synthOwner, drumOwner, synthSeq, drumSeq) = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var s = new Synth.SynthWindow(_services, () => { }, (_, _) => { }, noRestart);
+                var d = new Synth.DrumWindow(_services, () => { }, (_, _) => { }, noRestart);
+                s.Show();
+                d.Show();
+                var ss = s.OpenSequencer();
+                ss.Tempo = 111;
+                var ds = d.OpenSequencer();
+                return (s, d, ss, ds);
+            });
+            await Task.Delay(800);
+            log.Add($"sync: synth sequencer {synthSeq.Tempo} bpm, drum sequencer opened after it {drumSeq.Tempo} bpm, shared {Synth.SequencerTransport.Shared.Bpm}");
+            await Dispatcher.UIThread.InvokeAsync(() => drumSeq.Tempo = 127);
+            log.Add($"sync: after setting 127 in the drums: synth sequencer {synthSeq.Tempo} bpm, code: {synthSeq.CodeText.Split('\n')[2].Trim()}");
+            await Dispatcher.UIThread.InvokeAsync(() => Render(synthSeq, Path.Combine(outDir, "seq-sync.png")));
+            await Dispatcher.UIThread.InvokeAsync(() => { synthOwner.Close(); drumOwner.Close(); });
+        }
+        catch (Exception e) { log.Add("FAILED: " + e); }
+        File.WriteAllLines(Path.Combine(outDir, "sequencer.log"), log);
+        _closeConfirmed = true; // leave the settings (open files, patches, sequences) as they were
+        Close();
+    }
+
     private void Screenshot(string path)
     {
         var size = new PixelSize((int)Bounds.Width, (int)Bounds.Height);

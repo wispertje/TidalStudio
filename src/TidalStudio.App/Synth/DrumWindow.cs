@@ -43,6 +43,9 @@ public sealed class DrumWindow : Window
     private readonly CheckBox _autoPreview = new() { Content = "Auto-preview", IsChecked = true };
     private readonly CheckBox _restartOnSave = new() { Content = "Restart SuperDirt after saving", FontSize = 12 };
     private readonly CheckBox _combined = new() { Content = "Also save as one kit", FontSize = 12 };
+
+    private readonly Func<string, bool, Task>? _insertCode;
+    private SequencerWindow? _sequencer;
     private readonly WrapPanel _pads = new() { Orientation = Orientation.Horizontal };
     private readonly ContentControl _editor = new();
     private readonly WaveformView _wave = new() { Height = 70, Hint = "Click a drum (or Space) to hear it, G for a groove" };
@@ -51,8 +54,9 @@ public sealed class DrumWindow : Window
     private readonly TextBlock _folderLabel = new() { FontSize = 11, Foreground = SynthWindow.MutedBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
 
     public DrumWindow(AppServices services, Action samplesChanged, Action<OutputKind, string> log,
-        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt)
+        Func<string, Task<(bool Ok, string Message)>> restartSuperDirt, Func<string, bool, Task>? insertCode = null)
     {
+        _insertCode = insertCode;
         _services = services;
         _settings = services.Settings;
         _samplesChanged = samplesChanged;
@@ -85,6 +89,7 @@ public sealed class DrumWindow : Window
         Closing += (_, _) =>
         {
             _settings.DrumKitJson = _kit.ToJson();
+            _sequencer?.Close();
             _player.Dispose();
         };
     }
@@ -122,6 +127,9 @@ public sealed class DrumWindow : Window
         top.Children.Add(save);
         top.Children.Add(_combined);
         top.Children.Add(_restartOnSave);
+        var sequencer = SynthWindow.AccentButton("🥁 Beat sequencer", "Open the drum grid: program a beat with this kit, live, and get the Tidal code");
+        sequencer.Click += (_, _) => OpenSequencer();
+        top.Children.Add(sequencer);
         top.Children.Add(SynthWindow.ExampleButton(this, "02-tidepool-drums.tidal", "how to play the kits: one sound per drum, versions, the combined kit, fills, groove"));
 
         // Left: the pads. Right: the selected drum's controls.
@@ -194,6 +202,7 @@ public sealed class DrumWindow : Window
 
     private void RefreshPads()
     {
+        _sequencer?.SourceChanged();
         _pads.Children.Clear();
         for (int i = 0; i < _kit.Voices.Count; i++)
         {
@@ -276,6 +285,7 @@ public sealed class DrumWindow : Window
     private void Changed()
     {
         foreach (var refresh in _refreshers) refresh();
+        _sequencer?.SourceChanged();
     }
 
     private void RebuildEditor()
@@ -585,7 +595,8 @@ public sealed class DrumWindow : Window
 
     private void Commit()
     {
-        if (_autoPreview.IsChecked != true) return;
+        _sequencer?.SourceChanged();
+        if (_autoPreview.IsChecked != true || _sequencer is { IsPlaying: true }) return;
         _autoPreviewTimer.Stop();
         _autoPreviewTimer.Start();
     }
@@ -597,6 +608,29 @@ public sealed class DrumWindow : Window
         else if (e.Key == Key.G && e.KeyModifiers == KeyModifiers.None) { e.Handled = true; PlayGroove(); }
         else if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; _ = SaveAsync(); }
         else if (e.Key == Key.R && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; RandomiseVoice(); }
+    }
+
+
+    /// <summary>Opens the beat sequencer for this sound (or brings it to the front).</summary>
+    internal SequencerWindow OpenSequencer()
+    {
+        if (_sequencer is { } open) { open.Activate(); return open; }
+        _sequencer = SequencerWindow.ForBeat("Tidepool Drums", _settings.DrumBeatJson, json => _settings.DrumBeatJson = json, _insertCode, DrumSnapshotNow);
+        _sequencer.Closed += (_, _) => _sequencer = null;
+        _sequencer.Show(this);
+        return _sequencer;
+    }
+
+    /// <summary>The kit as the beat sequencer sees it: the drums that are on, and a renderer using a copy of the kit.</summary>
+    private DrumSnapshot DrumSnapshotNow()
+    {
+        var kit = _kit.Clone();
+        var drums = kit.ActiveVoices.Select(v => new SequencerDrum(v.Abbreviation, kit.SoundName(v), ModelName(v.Model), v.Model)).ToList();
+        return new DrumSnapshot(kit.Name, drums, drum =>
+        {
+            var voice = kit.ActiveVoices.FirstOrDefault(v => v.Abbreviation == drum);
+            return voice is null ? null : DrumEngine.Render(voice, 0, kit.SampleRate, kit.Normalize);
+        });
     }
 
     private async void Preview()
