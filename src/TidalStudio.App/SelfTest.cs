@@ -109,6 +109,7 @@ public partial class MainWindow
             await RunEditorChecksAsync(Log, outDir);
             if (_settings.SamplesFolder is not null) await RunSynthChecksAsync(Log, outDir);
             await RunVjChecksAsync(Log, outDir);
+            await RunMuseChecksAsync(Log, outDir);
         }
         else
         {
@@ -416,6 +417,83 @@ public partial class MainWindow
         var doc = Editor.Document;
         var line = doc.GetLineByNumber(Math.Max(1, doc.LineCount - fromEnd + 1));
         return doc.GetText(line.Offset, line.Length);
+    }
+
+    /// <summary>
+    /// Muse: a groove plays (silently), the suggestion popup makes ideas that fit it, Enter pastes one; the trainer
+    /// makes an A/B pair. Screenshots of each.
+    /// </summary>
+    private async Task RunMuseChecksAsync(Action<string> log, string outDir)
+    {
+        const string groove = "do\n  setcps (118/60/4)\n  d1 $ s \"[gatedbd*4, ~ gatedsd ~ gatedsd, gatedhh*8]\"\n" +
+                              "  d3 $ note \"<c'min af4'maj ef'maj bf4'maj>\" # s \"poppad\" # legato 1\n" +
+                              "  d5 $ note \"<[c ~ c6 ~]*2 [af4 ~ af ~]*2 [ef ~ ef6 ~]*2 [bf4 ~ bf ~]*2>\" # s \"popbass\" # n 1";
+        var r = await _services.Ghci.EvalAsync(groove);
+        log($"muse: groove ran: {r.Success} {r.ErrorText.Replace('\n', ' ')}");
+        await Task.Delay(500);
+        var (context, bpm) = await MuseService.LiveContextAsync(4);
+        log($"muse: context: {context.Describe()} · {bpm} bpm · model: {MuseService.ModelStatus}");
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            NewDocument(withSample: false);
+            Editor.Document.Text = "-- my track\n\n";
+            Editor.TextArea.Caret.Line = 2;
+        });
+        foreach (var (kind, key) in new[] { ("melody", Avalonia.Input.Key.M), ("bass", Avalonia.Input.Key.B), ("newpart", Avalonia.Input.Key.P), ("drums", Avalonia.Input.Key.D) })
+        {
+            var popup = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var p = new Muse.SuggestPopup(MuseService, _services, InsertSuggestionAsync);
+                p.ShowAt(this, this.PointToScreen(new Point(140, 160)));
+                return p;
+            });
+            await Task.Delay(600);
+            await Dispatcher.UIThread.InvokeAsync(() => popup.PressKey(key));
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (watch.ElapsedMilliseconds < 20000 && (await Dispatcher.UIThread.InvokeAsync(() => popup.ItemCount)) == 0) await Task.Delay(200);
+            await Task.Delay(1500); // a second refresh may follow the key
+            while (watch.ElapsedMilliseconds < 30000 && (await Dispatcher.UIThread.InvokeAsync(() => popup.ItemCount)) == 0) await Task.Delay(200);
+            log($"muse: {kind}: {await Dispatcher.UIThread.InvokeAsync(() => popup.ItemCount)} ideas · {await Dispatcher.UIThread.InvokeAsync(() => popup.StatusText)}");
+            await Dispatcher.UIThread.InvokeAsync(() => Render((Control)popup.Content!, Path.Combine(outDir, $"muse-{kind}.png")));
+            if (kind == "bass")
+            {
+                // Listen (Space), then paste (Enter).
+                await Dispatcher.UIThread.InvokeAsync(() => popup.PressKey(Avalonia.Input.Key.Space));
+                await Task.Delay(800);
+                log($"muse: listening: {await Dispatcher.UIThread.InvokeAsync(() => popup.StatusText)}");
+                await Dispatcher.UIThread.InvokeAsync(() => popup.PressKey(Avalonia.Input.Key.Enter));
+                await Task.Delay(800);
+                string text = await Dispatcher.UIThread.InvokeAsync(() => Editor.Document.Text);
+                log($"muse: pasted: {text.Contains("-- suggestion: bassline")} ({text.Split('\n').Length} lines)");
+            }
+            else await Dispatcher.UIThread.InvokeAsync(() => popup.PressKey(Avalonia.Input.Key.Escape));
+            await Task.Delay(300);
+        }
+        await Dispatcher.UIThread.InvokeAsync(() => Screenshot(Path.Combine(outDir, "muse-pasted.png")));
+
+        var trainer = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            var w = new Muse.MuseTrainerWindow(MuseService, _services, (_, t) => log("[muse] " + t)) { Width = 1000, Height = 780 };
+            w.Show();
+            return w;
+        });
+        await Task.Delay(800);
+        await Dispatcher.UIThread.InvokeAsync(() => Render(trainer, Path.Combine(outDir, "muse-trainer-data.png")));
+        await Dispatcher.UIThread.InvokeAsync(() => trainer.SelectTab(1));
+        await Task.Delay(300);
+        await Dispatcher.UIThread.InvokeAsync(trainer.NextPairForTestAsync);
+        await Task.Delay(800);
+        log($"muse: train by ear: {await Dispatcher.UIThread.InvokeAsync(() => trainer.EarStatusText)}");
+        await Dispatcher.UIThread.InvokeAsync(() => Render(trainer, Path.Combine(outDir, "muse-trainer-ear.png")));
+        await Dispatcher.UIThread.InvokeAsync(() => trainer.SelectTab(2));
+        await Task.Delay(300);
+        await Dispatcher.UIThread.InvokeAsync(() => Render(trainer, Path.Combine(outDir, "muse-trainer-training.png")));
+        await Dispatcher.UIThread.InvokeAsync(() => trainer.SelectTab(3));
+        await Task.Delay(300);
+        await Dispatcher.UIThread.InvokeAsync(() => Render(trainer, Path.Combine(outDir, "muse-trainer-versions.png")));
+        await Dispatcher.UIThread.InvokeAsync(trainer.Close);
+        await HushAsync();
     }
 
     private async Task SendKeyToEndAsync(Avalonia.Input.Key key, Avalonia.Input.KeyModifiers modifiers = Avalonia.Input.KeyModifiers.None)

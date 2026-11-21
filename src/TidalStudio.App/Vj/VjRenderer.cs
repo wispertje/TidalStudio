@@ -50,6 +50,19 @@ internal sealed class VjRenderer
     private int _w, _h;
     private SKSurface? _a, _b, _mix, _fb0, _fb1;
 
+    /// <summary>
+    /// GPU and software frames each keep their own surfaces: a software frame (a screenshot) must never dispose the
+    /// GPU surfaces, which belong to the render thread's context.
+    /// </summary>
+    private sealed class SurfaceSet
+    {
+        public GRContext? Gr;
+        public int W, H;
+        public SKSurface? A, B, Mix, Fb0, Fb1;
+    }
+    private readonly SurfaceSet _gpuSet = new(), _rasterSet = new();
+    private SurfaceSet? _current;
+
     private static readonly SKSamplingOptions Linear = new(SKFilterMode.Linear);
     private static readonly SKTypeface Mono = Pick("Cascadia Mono", "Consolas", "Courier New");
     private static readonly SKTypeface Sans = Pick("Segoe UI", "Arial");
@@ -148,6 +161,7 @@ internal sealed class VjRenderer
                 using var paint = new SKPaint { Shader = shader };
                 _fb1.Canvas.DrawRect(0, 0, _w, _h, paint);
                 (_fb0, _fb1) = (_fb1, _fb0);
+                if (_current is not null) (_current.Fb0, _current.Fb1) = (_fb0, _fb1);
             }
 
             // 4. Onto the screen.
@@ -193,22 +207,26 @@ internal sealed class VjRenderer
 
     private void EnsureSurfaces(GRContext? gr, int w, int h)
     {
-        bool gpu = gr is not null;
-        if (_a is not null && w == _w && h == _h && gpu == _gpu && ReferenceEquals(gr, _gr)) return;
-        foreach (var s in new[] { _a, _b, _mix, _fb0, _fb1 }) s?.Dispose();
-        _gr = gr;
-        _gpu = gpu;
-        _w = w;
-        _h = h;
-        var info = new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Premul);
-        SKSurface? Make() => gr is not null ? SKSurface.Create(gr, false, info) ?? SKSurface.Create(info) : SKSurface.Create(info);
-        _a = Make();
-        _b = Make();
-        _mix = Make();
-        _fb0 = Make();
-        _fb1 = Make();
-        _fb0?.Canvas.Clear(SKColors.Black);
-        _fb1?.Canvas.Clear(SKColors.Black);
+        var set = gr is null ? _rasterSet : _gpuSet;
+        if (set.A is null || w != set.W || h != set.H || !ReferenceEquals(gr, set.Gr))
+        {
+            foreach (var s in new[] { set.A, set.B, set.Mix, set.Fb0, set.Fb1 }) s?.Dispose();
+            set.Gr = gr;
+            set.W = w;
+            set.H = h;
+            var info = new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Premul);
+            SKSurface? Make() => gr is not null ? SKSurface.Create(gr, false, info) ?? SKSurface.Create(info) : SKSurface.Create(info);
+            set.A = Make();
+            set.B = Make();
+            set.Mix = Make();
+            set.Fb0 = Make();
+            set.Fb1 = Make();
+            set.Fb0?.Canvas.Clear(SKColors.Black);
+            set.Fb1?.Canvas.Clear(SKColors.Black);
+        }
+        _current = set;
+        (_a, _b, _mix, _fb0, _fb1) = (set.A, set.B, set.Mix, set.Fb0, set.Fb1);
+        (_gr, _gpu, _w, _h) = (gr, gr is not null, w, h);
     }
 
     // ------------------------------------------------------------------ scenes

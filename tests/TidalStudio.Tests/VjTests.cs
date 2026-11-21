@@ -94,7 +94,7 @@ public class VjTests
         Assert.Null(log.Draft);
         Assert.DoesNotContain(CodeView.Layout(log, Array.Empty<TidalEvent>(), 3.5), l => l.IsDraft);
         log.SetDraft("d6 $ s \"x\"", 4);
-        Assert.Empty(CodeView.Layout(log, Array.Empty<TidalEvent>(), 4 + CodeView.DraftSeconds + 1).Where(l => l.IsDraft));
+        Assert.DoesNotContain(CodeView.Layout(log, Array.Empty<TidalEvent>(), 4 + CodeView.DraftSeconds + 1), l => l.IsDraft);
     }
 
     [Theory]

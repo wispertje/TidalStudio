@@ -130,6 +130,10 @@ public sealed partial class GhciHost : IAsyncDisposable
     public async Task<EvalResult> EvalAsync(string code, TimeSpan? timeout = null) =>
         (await RunAsync(code, timeout, quiet: false).ConfigureAwait(false)).Result;
 
+    /// <summary>Evaluates code without showing it in the console. True when it compiled and ran.</summary>
+    public async Task<bool> EvalQuietAsync(string code, TimeSpan? timeout = null) =>
+        (await RunAsync(code, timeout, quiet: true).ConfigureAwait(false)).Result.Success;
+
     /// <summary>
     /// Runs a command (e.g. <c>:browse Sound.Tidal.Context</c>) without showing anything in the console, and returns
     /// what it printed. Returns an empty list when Tidal is not running or the command fails.

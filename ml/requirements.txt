@@ -1,0 +1,6 @@
+# Installed by TidalStudio into %LOCALAPPDATA%\TidalStudio\ml\venv
+# torch comes from https://download.pytorch.org/whl/cu124 (CUDA) or the CPU index
+torch
+numpy
+onnx
+onnxscript

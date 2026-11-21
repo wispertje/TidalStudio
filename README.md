@@ -163,6 +163,31 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     you are typing appears as a dim draft with a cursor. As a side panel or a big centred overlay (`C`).
   - Move the mouse for the controls (they hide by themselves). Keys: `Space` next scene, `1`–`9` scenes, `A` auto,
     `T` transition, `Q` colours, `C` code, `R`/`K`/`M`/`P`/`S`/`B` effects, `↑`/`↓` intensity, `[`/`]` trails, `?` all keys.
+- **Muse: AI part suggestions** (Muse ▸ Suggest a part…, `Ctrl+Shift+G`): ideas for a melody, bassline, drums,
+  chords or a whole new part that fit what is playing, as Tidal code with your own samples.
+  - **Live**: put the cursor where you want the code and press `Ctrl+Shift+G`. Pick with one key (`M` melody, `B` bass,
+    `D` drums, `C` chords, `P` new part), `1`/`2`/`4`/`8` bars; *busy* and *surprise* sliders, a sound or kit (or auto).
+    `↑`/`↓` choose, `Space` listens on `d14`–`d16` in time with the music, `Enter` pastes the code as a new block
+    (`Ctrl+Enter` pastes and runs it), `R` new ideas, `+`/`−` like/dislike, `Esc` closes.
+  - **What it knows**: Tidal itself works out what plays (a small helper queries the running patterns), so Muse sees
+    the actual notes, key, chords per bar and the kick. It only uses the sounds in your samples folder (the Tidepool
+    ones: pitched sounds with their pitch per `n`, drum kits, loops), and writes plain Tidal: `note "<[c ~ ef g] …>"
+    # s "poplead" # n 0`, drums as `s "[gatedbd*4, [~ gatedsd]*2, gatedhh*8]"`, a new part as a `do` block.
+  - **The model**: a small transformer (≈15M parameters) that writes notes as tokens, never Haskell; C# turns them into
+    code, so the code always works. Generation follows rules (in key, in range, the right number of bars) and your taste
+    picks the best of more ideas than you see. It runs on the CPU in about a second. Without a trained model the
+    suggestions come from music rules.
+  - **Muse trainer** (`Ctrl+Shift+M`): *Sounds & data* (the role of every sound, import your `.tidal` files — run in a
+    second, silent Tidal — and public MIDI for pretraining), *Train by ear* (A or B? keys `N` next, `A`/`B` play, `1`/`2`
+    choose, `3` both good, `0` neither, with optional reasons; every choice updates your taste at once and every 50 ratings
+    the model learns from them), *Training* (set up Python with PyTorch, pretrain, fine-tune on your music, learn from your
+    ratings, with a live loss chart) and *Versions* (every run is kept; switch back any time).
+  - Data and models live in `%LOCALAPPDATA%\TidalStudio\ml`. Command line: `TidalStudio.exe --ml roundtrip|generate|dataset …`.
+- **Render all factory presets** (Synth ▸ Render all factory presets to samples…) saves every preset of the four
+  synths as samples in one go (about 100 sounds, ~750 WAVs, ~220 MB), plus `mykit`, `acidloop` and `popline` that
+  the example scripts use, and loads them into SuperDirt. Sounds that already have samples are left alone. Acid box
+  sounds get the names `acidclassic`, `acidslow`, `acidscreamer`, … and the synth pop sequences `seqoctbass`,
+  `seqeighths`, … (118 bpm). From the command line: `TidalStudio.exe --render-presets <samples folder> [--replace]`.
 - **Example scripts** (Synth ▸ Example scripts, or the 📄 button in each synth window) open in a new tab and show
   how to play what each synth makes: Tidepool samples (`n` for the octave, `note` for pitch, chords, arpeggios, monophonic
   basses with `cut`), Tidepool Drums kits (per-drum sounds, versions, the combined kit, fills, groove) and Tidepool Acid

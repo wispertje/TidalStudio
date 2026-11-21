@@ -57,6 +57,7 @@
                 <MenuItem Header="Tidepool Drums (drum kit synth)…" InputGesture="Ctrl+Shift+U" Click="OnOpenDrums" />
                 <MenuItem Header="Tidepool Acid (bassline box)…" InputGesture="Ctrl+Shift+J" Click="OnOpenAcid" />
                 <MenuItem Header="Tidepool FM (6-operator FM synth)…" InputGesture="Ctrl+Shift+K" Click="OnOpenFm" />
+                <MenuItem Header="Render all factory presets to samples…" Click="OnRenderAllPresets" />
                 <Separator />
                 <MenuItem Header="Example scripts">
                     <MenuItem Header="Using Tidepool synth samples" Click="OnOpenExample" Tag="01-tidepool-synth.tidal" />
@@ -91,6 +92,10 @@
                 <Separator />
                 <MenuItem Header="Clear console" Click="OnClearConsole" />
                 <MenuItem Header="Open settings file" Click="OnOpenSettingsFile" />
+            </MenuItem>
+            <MenuItem Header="_Muse">
+                <MenuItem Header="Suggest a part (melody, bass, drums, chords, new part)…" InputGesture="Ctrl+Shift+G" Click="OnMuseSuggest" />
+                <MenuItem Header="Muse trainer (data, train by ear, training, versions)…" InputGesture="Ctrl+Shift+M" Click="OnMuseTrainer" />
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="Keyboard shortcuts &amp; tips" Click="OnShowHelp" />

@@ -16,6 +16,24 @@ internal static class Program
             WriteCrash(e.Exception);
             e.SetObserved();
         };
+        // --ml <command> …: tools for the suggestion model (no window), see MlCli.
+        if (args.Contains("--ml"))
+            Environment.Exit(TidalStudio.Core.Ml.MlCli.RunAsync(args).GetAwaiter().GetResult());
+        // --render-presets <samples folder> [--replace]: render every factory preset to WAVs and exit (no window).
+        int render = Array.IndexOf(args, "--render-presets");
+        if (render >= 0 && render + 1 < args.Length)
+        {
+            string root = args[render + 1];
+            Directory.CreateDirectory(root);
+            var log = new List<string>();
+            var result = TidalStudio.Core.Synth.PresetSamples.RenderAll(root, args.Contains("--replace"),
+                (i, n, s) => { if (i < n) log.Add($"[{i + 1}/{n}] {s.Synth} · {s.Preset} → {s.Sound}"); });
+            log.Add($"written {result.Written.Count} presets, {result.Files} files; skipped {result.Skipped.Count} (already there): {string.Join(", ", result.Skipped.Select(s => s.Sound))}");
+            foreach (var (s, error) in result.Failed) log.Add($"FAILED {s.Synth} · {s.Preset}: {error}");
+            Directory.CreateDirectory(AppSettings.DefaultDirectory);
+            File.WriteAllLines(Path.Combine(AppSettings.DefaultDirectory, "render-presets.log"), log);
+            Environment.Exit(result.Failed.Count == 0 ? 0 : 1);
+        }
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);

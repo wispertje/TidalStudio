@@ -289,6 +289,16 @@ public partial class MainWindow : Window
             e.Handled = true;
             OnOpenVj(this, new RoutedEventArgs());
         }
+        else if (ctrl && shift && !alt && e.Key == Key.G)
+        {
+            e.Handled = true;
+            OnMuseSuggest(this, new RoutedEventArgs());
+        }
+        else if (ctrl && shift && !alt && e.Key == Key.M)
+        {
+            e.Handled = true;
+            OnMuseTrainer(this, new RoutedEventArgs());
+        }
         else if (ctrl && shift && !alt && e.Key == Key.K)
         {
             e.Handled = true;
@@ -1326,6 +1336,119 @@ public partial class MainWindow : Window
         _vj = new Vj.VjWindow(_services);
         _vj.Closed += (_, _) => { _vj = null; _settings.Save(); };
         _vj.Show();
+    }
+
+    private bool _renderingPresets;
+
+    /// <summary>Renders the factory presets of all four synths into the samples folder and loads them into SuperDirt.</summary>
+    private async void OnRenderAllPresets(object? sender, RoutedEventArgs e)
+    {
+        if (_renderingPresets) return;
+        string root = _settings.SamplesFolder is { Length: > 0 } f ? f
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyMusic), "samples");
+        var plan = Core.Synth.PresetSamples.Plan();
+        if (!await Dialogs.Confirm(this, "Render all presets",
+                $"Render the {plan.Count} factory presets of Tidepool, Drums, Acid and FM as samples into {root}?\n\n" +
+                "Sounds that already have samples there are left alone, so nothing you saved yourself is replaced.", "Render"))
+            return;
+        _renderingPresets = true;
+        try
+        {
+            _console.Add(OutputKind.Info, $"Rendering {plan.Count} factory presets into {root}…");
+            var result = await Task.Run(() => Core.Synth.PresetSamples.RenderAll(root, replace: false,
+                (i, n, s) => { if (i < n && i % 10 == 0) Dispatcher.UIThread.Post(() => _console.Add(OutputKind.Info, $"  {i + 1}/{n}: {s.Synth} · {s.Preset}")); }));
+            foreach (var (s, error) in result.Failed) _console.Add(OutputKind.Error, $"  {s.Synth} · {s.Preset} failed: {error}");
+            if (result.Skipped.Count > 0)
+                _console.Add(OutputKind.Info, $"  Left alone (already saved): {string.Join(", ", result.Skipped.Select(s => s.Sound))}");
+            _completionCatalog.InvalidateSamples();
+            int loaded = 0;
+            if (_services.SuperDirt.IsRunning)
+                foreach (var dir in result.Written.SelectMany(Core.Synth.PresetSamples.FoldersOf))
+                    if (_services.SuperDirt.TrySendCode($"~dirt.loadSoundFiles(\"{Path.Combine(root, dir).Replace('\\', '/')}\");")) loaded++;
+            _console.Add(OutputKind.Info, $"Rendered {result.Written.Count} presets ({result.Files} samples)." +
+                (loaded > 0 ? " They are loaded into SuperDirt: try the example scripts (Synth ▸ Example scripts)." : " Start SuperDirt to load them."));
+        }
+        finally { _renderingPresets = false; }
+    }
+
+    // ------------------------------------------------------------------ Muse (AI part suggestions)
+
+    private Muse.MuseService? _museService;
+    private Muse.MuseTrainerWindow? _museTrainer;
+
+    internal Muse.MuseService MuseService => _museService ??= new Muse.MuseService(_services);
+
+    private void OnMuseSuggest(object? sender, RoutedEventArgs e)
+    {
+        if (_active is null) NewDocument(withSample: false);
+        var popup = new Muse.SuggestPopup(MuseService, _services, InsertSuggestionAsync);
+        popup.ShowAt(this, CaretScreenPoint());
+    }
+
+    private void OnMuseTrainer(object? sender, RoutedEventArgs e)
+    {
+        if (_museTrainer is { IsVisible: true })
+        {
+            _museTrainer.Activate();
+            return;
+        }
+        _museTrainer = new Muse.MuseTrainerWindow(MuseService, _services, (kind, text) => _console.Add(kind, text));
+        _museTrainer.Closed += (_, _) => { _museTrainer = null; _settings.Save(); };
+        _museTrainer.Show();
+    }
+
+    /// <summary>The screen position just below the editor's cursor.</summary>
+    private PixelPoint CaretScreenPoint()
+    {
+        try
+        {
+            var view = Editor.TextArea.TextView;
+            var caret = Editor.TextArea.Caret;
+            var p = view.GetVisualPosition(caret.Position, VisualYPosition.LineBottom) - view.ScrollOffset;
+            return view.PointToScreen(new Point(Math.Max(0, p.X), Math.Max(0, p.Y)));
+        }
+        catch (Exception)
+        {
+            return this.PointToScreen(new Point(80, 120));
+        }
+    }
+
+    /// <summary>
+    /// Pastes suggested code as its own block: at the cursor when the line is empty, else after the block the
+    /// cursor is in. With <paramref name="run"/> it is run straight away.
+    /// </summary>
+    internal async Task InsertSuggestionAsync(string code, bool run)
+    {
+        Activate();
+        var doc = Editor.Document;
+        int lineNumber = Math.Clamp(Editor.TextArea.Caret.Line, 1, doc.LineCount);
+        var line = doc.GetLineByNumber(lineNumber);
+        string current = doc.GetText(line.Offset, line.Length);
+        int offset;
+        string text;
+        int firstLine; // 0-based line where the code starts
+        if (current.Trim().Length == 0)
+        {
+            bool blankBefore = lineNumber == 1 || doc.GetText(doc.GetLineByNumber(lineNumber - 1)).Trim().Length == 0;
+            offset = line.Offset;
+            text = (blankBefore ? "" : "\n") + code + "\n";
+            firstLine = lineNumber - 1 + (blankBefore ? 0 : 1);
+        }
+        else
+        {
+            var block = CodeBlocks.GetBlock(doc.Text, lineNumber - 1);
+            int endLine = (block?.EndLine ?? lineNumber - 1) + 1; // 1-based
+            offset = doc.GetLineByNumber(endLine).EndOffset;
+            text = "\n\n" + code;
+            firstLine = endLine + 1;
+        }
+        doc.Insert(offset, text);
+        int lastLine = firstLine + code.Split('\n').Length - 1;
+        var codeLine = doc.GetLineByNumber(Math.Min(doc.LineCount, firstLine + 1));
+        Editor.CaretOffset = codeLine.Offset;
+        Editor.TextArea.Caret.BringCaretToView();
+        Editor.Focus();
+        if (run) await RunRangeAsync(firstLine, Math.Min(lastLine, doc.LineCount - 1));
     }
 
     private Synth.FmWindow? _fm;

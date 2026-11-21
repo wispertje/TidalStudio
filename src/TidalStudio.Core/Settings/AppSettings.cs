@@ -76,6 +76,8 @@ public sealed class AppSettings
     /// <summary>How long the last Tidal start took, to estimate progress on the loading screen.</summary>
     public double LastTidalStartSeconds { get; set; } = 8;
     public string? LastFile { get; set; }
+    /// <summary>Tidepool Muse (AI part suggestions).</summary>
+    public MuseSettings Muse { get; set; } = new();
     /// <summary>Files open in tabs when TidalStudio closed; reopened on the next start.</summary>
     public List<string> OpenFiles { get; set; } = new();
     public List<string> RecentFiles { get; set; } = new();
@@ -157,4 +159,22 @@ public sealed class AppSettings
         foreach (char c in patternId) hash = hash * 31 + c;
         return PatternColors[Math.Abs(hash % PatternColors.Count)];
     }
+}
+
+/// <summary>Settings of Tidepool Muse, the part suggestions.</summary>
+public sealed class MuseSettings
+{
+    /// <summary>The model version in use (a folder name under models), or null for the newest.</summary>
+    public string? ActiveModel { get; set; }
+    public bool UseModel { get; set; } = true;
+    public string Kind { get; set; } = "Melody";
+    public int Bars { get; set; } = 4;
+    public double Surprise { get; set; } = 0.4;
+    public int Density { get; set; } = -1;
+    public bool InKeyOnly { get; set; } = true;
+    /// <summary>Start a DPO update after this many new ratings (0 = never by itself).</summary>
+    public int AutoUpdateEvery { get; set; } = 50;
+    public int RatingsAtLastUpdate { get; set; }
+    /// <summary>Folders and files imported as your own music.</summary>
+    public List<string> ImportSources { get; set; } = new();
 }

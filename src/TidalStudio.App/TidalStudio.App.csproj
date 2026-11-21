@@ -28,6 +28,10 @@
     <AvaloniaResource Include="Assets\**\*" />
     <ProjectReference Include="..\TidalStudio.Core\TidalStudio.Core.csproj" />
   </ItemGroup>
+  <!-- Muse's training scripts (run with the Python environment TidalStudio sets up), next to the exe in ml\. -->
+  <ItemGroup>
+    <None Include="..\..\ml\**\*.py;..\..\ml\requirements.txt" Exclude="..\..\ml\**\__pycache__\**" Link="ml\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
   <!-- SkiaSharp/HarfBuzz ship ~100 MB of native .pdb files; they are not needed to run the app. -->
   <Target Name="RemoveNativePdbs" AfterTargets="Publish">
     <Delete Files="$(PublishDir)libSkiaSharp.pdb;$(PublishDir)libHarfBuzzSharp.pdb" />
