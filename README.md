@@ -157,6 +157,9 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     + `note`, `legato` / `cut`, `gain`, `swingBy`), and **turning knobs in the synth window is heard while it plays**.
   - The **code** below it (a `do` block with `setcps` and the pattern, on the channel you choose) can be copied, or
     inserted into the current script and run. Save the sound in the synth so SuperDirt has the samples you heard.
+    It is written to be read and edited: one bar per cycle (`<[bar 1] [bar 2]>`, or `slow` when notes cross bar lines),
+    beats split with `.`, rest runs as `~@n`, notes played together as `[c,e,g]`, repeating drum rows as `[bd ~ ~ ~]*4`.
+    A cycle is one bar of 16 sixteenths at `setcps (bpm/60/4)`, so Tidal plays exactly what the sequencer plays.
   - Tidepool Acid has its own step editor; its "Copy code" / "Insert into script" give the loop code for a pattern.
   - **Open sequencers play in time together** (Tidepool Acid included): their loops are mixed on one shared clock, a
     loop you start joins in where it would be had it been playing all along (like a pattern in Tidal), and they share

@@ -346,6 +346,7 @@ public sealed class SequencerWindow : Window, ITempoFollower
         top.Children.Add(SynthWindow.Labelled("Scale", scale));
         top.Children.Add(SynthWindow.Labelled("New note", draw));
 
+
         void Tool(string text, string tip, Action<MelodySequence> action)
         {
             var b = SynthWindow.SmallButton(text, tip);
@@ -518,7 +519,7 @@ public sealed class SequencerWindow : Window, ITempoFollower
             _code.Text = SequenceCode.Melody(_melody!, snap.Sound, snap.SampleMidis);
             string samples = string.Join(", ", snap.SampleMidis.Select((m, i) => $"n {i} = {SynthPatch.NoteName(m)}"));
             var mids = snap.SampleMidis.Count > 0 ? snap.SampleMidis : new[] { 60 };
-            int farthest = _melody!.Playing.Select(n => Math.Abs(n.Midi - mids[SequenceCode.SampleFor(n.Midi, mids)])).DefaultIfEmpty(0).Max();
+            int farthest = SequenceCode.Units(_melody!, mids).SelectMany(u => u.Midis.Select(m => Math.Abs(m - mids[u.Sample]))).DefaultIfEmpty(0).Max();
             string far = farthest > 12
                 ? $"⚠ Some notes are {farthest} semitones from the closest rendered note, so they sound sped up or slowed down: " +
                   $"add notes near them to the Notes box in {_synthName} (e.g. c4 c5) and save. "
@@ -631,7 +632,7 @@ public sealed class SequencerWindow : Window, ITempoFollower
             var snap = _melodicSource();
             var cache = _noteCache;
             var mids = snap.SampleMidis.Count > 0 ? snap.SampleMidis : new[] { 60 };
-            var needed = seq.Playing.Select(n => mids[SequenceCode.SampleFor(n.Midi, mids)]).Distinct().ToList();
+            var needed = SequenceCode.Units(seq, mids).Select(u => mids[u.Sample]).Distinct().ToList();
             return Task.Run(() =>
             {
                 var samples = new List<RenderedNote>();

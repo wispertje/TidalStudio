@@ -18,6 +18,9 @@ public sealed class SeqNote
     public SeqNote Clone() => (SeqNote)MemberwiseClone();
 }
 
+/// <summary>Notes played together (same start and length) with the sample they use.</summary>
+public sealed record SeqUnit(int Step, int Length, int Sample, int[] Midis);
+
 /// <summary>Settings both sequencers share: tempo, length in sixteenth steps (16 = one Tidal cycle), swing.</summary>
 public abstract class SequenceBase
 {
@@ -374,34 +377,123 @@ public static class SequenceCode
         swing > 0.001 ? $"swingBy {Num(Math.Round(swing / 2, 4))} 8 $ " : "";
 
     /// <summary>
-    /// Splits notes into monophonic lanes (no overlaps within a lane) so each lane can be written as one mini-notation sequence.
+    /// The notes grouped as they are played: notes that start together and last as long form one unit, which uses one
+    /// sample — the one closest to its lowest note — so it stays one token in the code ("[c,e,g]"). The preview and the
+    /// code both use this, so they play the same thing.
     /// </summary>
-    public static List<List<SeqNote>> Lanes(IEnumerable<SeqNote> notes)
+    public static List<SeqUnit> Units(MelodySequence seq, IReadOnlyList<int> sampleMidis)
     {
-        var lanes = new List<List<SeqNote>>();
-        foreach (var n in notes.OrderBy(n => n.Step).ThenBy(n => n.Midi))
+        var mids = sampleMidis.Count > 0 ? sampleMidis : new[] { 60 };
+        return seq.Playing
+            .GroupBy(n => (n.Step, n.Length))
+            .Select(g =>
+            {
+                var midis = g.Select(n => n.Midi).Distinct().OrderBy(m => m).ToArray();
+                return new SeqUnit(g.Key.Step, g.Key.Length, SampleFor(midis[0], mids), midis);
+            })
+            .OrderBy(u => u.Step).ThenBy(u => u.Midis[0])
+            .ToList();
+    }
+
+    /// <summary>A unit as a mini-notation token: "e", or "[c,e,g]" for notes played together.</summary>
+    public static string UnitToken(SeqUnit unit, int sampleMidi)
+    {
+        var offsets = unit.Midis.Select(m => m - sampleMidi).ToArray();
+        if (offsets.Length == 1) return NoteToken(offsets[0]);
+        return $"[{string.Join(',', offsets.Select(NoteToken))}]";
+    }
+
+    /// <summary>Something to write at a step: a token lasting some steps.</summary>
+    private readonly record struct Cell(int Step, int Length, string Token);
+
+    /// <summary>Splits cells into lanes that don't overlap, so each lane is one mini-notation sequence.</summary>
+    private static List<List<Cell>> Lanes(IEnumerable<Cell> cells)
+    {
+        var lanes = new List<List<Cell>>();
+        foreach (var c in cells.OrderBy(c => c.Step))
         {
-            var lane = lanes.FirstOrDefault(l => l[^1].Step + l[^1].Length <= n.Step);
-            if (lane is null) lanes.Add(lane = new List<SeqNote>());
-            lane.Add(n);
+            var lane = lanes.FirstOrDefault(l => l[^1].Step + l[^1].Length <= c.Step);
+            if (lane is null) lanes.Add(lane = new List<Cell>());
+            lane.Add(c);
         }
         return lanes;
     }
 
-    /// <summary>One lane as mini-notation: tokens with @ for longer notes and ~ for rests, <paramref name="length"/> steps in all.</summary>
-    public static string LaneText(IReadOnlyList<SeqNote> lane, int length, Func<SeqNote, string> token)
+    /// <summary>
+    /// Cells from <paramref name="from"/> for <paramref name="span"/> steps as a plain sequence: @ for longer notes, ~ for
+    /// rests (long runs of rests as ~@n when <paramref name="mergeRests"/>). A single cell filling the span is just its token.
+    /// </summary>
+    private static string Flat(IReadOnlyList<Cell> cells, int from, int span, bool mergeRests)
     {
+        if (cells.Count == 0) return "~";
+        if (cells.Count == 1 && cells[0].Step == from && cells[0].Length >= span) return cells[0].Token;
         var parts = new List<string>();
-        int at = 0;
-        foreach (var n in lane)
+        void Rest(int k)
         {
-            while (at < n.Step) { parts.Add("~"); at++; }
-            int len = Math.Min(n.Length, length - n.Step);
-            parts.Add(len > 1 ? $"{token(n)}@{len}" : token(n));
-            at += len;
+            if (k <= 0) return;
+            if (mergeRests && k >= 3) parts.Add($"~@{k}");
+            else for (int i = 0; i < k; i++) parts.Add("~");
         }
-        while (at < length) { parts.Add("~"); at++; }
+        int at = from;
+        foreach (var c in cells)
+        {
+            Rest(c.Step - at);
+            int len = Math.Min(c.Length, from + span - c.Step);
+            parts.Add(len > 1 ? $"{c.Token}@{len}" : c.Token);
+            at = c.Step + len;
+        }
+        Rest(from + span - at);
         return string.Join(' ', parts);
+    }
+
+    /// <summary>
+    /// A stretch of the pattern grouped by beats ("c ~ e ~ . g@2 a b . ~ . c") or half bars when no note crosses them —
+    /// Tidal's "." splits a sequence into equal parts — else as one plain sequence.
+    /// </summary>
+    private static string Grouped(IReadOnlyList<Cell> cells, int from, int span)
+    {
+        foreach (int g in new[] { 4, 8 })
+        {
+            if (span <= g || span % g != 0) continue;
+            if (cells.Any(c => (c.Step - from) / g != (c.Step - from + c.Length - 1) / g)) continue;
+            return string.Join(" . ", Enumerable.Range(0, span / g)
+                .Select(k => Flat(cells.Where(c => (c.Step - from) / g == k).ToList(), from + k * g, g, mergeRests: g > 4)));
+        }
+        return Flat(cells, from, span, mergeRests: true);
+    }
+
+    /// <summary>
+    /// True when the pattern can be written bar by bar ("&lt;[bar 1] [bar 2]&gt;", a bar per cycle) instead of slowing down
+    /// one long sequence: it is two or more whole bars and no note continues into the next bar.
+    /// </summary>
+    private static bool BarByBar(int length, IEnumerable<Cell> cells) =>
+        length > StepsPerCycle && length % StepsPerCycle == 0 &&
+        cells.All(c => c.Step / StepsPerCycle == (c.Step + c.Length - 1) / StepsPerCycle);
+
+    private const int StepsPerCycle = SequenceBase.StepsPerCycle;
+
+    /// <summary>One lane: bar by bar ("&lt;…&gt;", or one bar when every bar is the same) or as one stretch of the pattern.</summary>
+    private static string LaneText(IReadOnlyList<Cell> lane, int length, bool barByBar, Func<IReadOnlyList<Cell>, int, int, string> write)
+    {
+        if (!barByBar) return write(lane, 0, length);
+        var bars = Enumerable.Range(0, length / StepsPerCycle)
+            .Select(b => write(lane.Where(c => c.Step / StepsPerCycle == b).ToList(), b * StepsPerCycle, StepsPerCycle))
+            .ToList();
+        if (bars.All(b => b == bars[0])) return bars[0];
+        return "<" + string.Join(' ', bars.Select(b => HasTopLevelSpace(b) ? $"[{b}]" : b)) + ">";
+    }
+
+    /// <summary>True when a sequence has more than one element ("c e", not "[c e]*2"), so it needs brackets to be one step.</summary>
+    private static bool HasTopLevelSpace(string text)
+    {
+        int depth = 0;
+        foreach (char ch in text)
+        {
+            if (ch is '[' or '<') depth++;
+            else if (ch is ']' or '>') depth--;
+            else if (ch == ' ' && depth == 0) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -412,29 +504,31 @@ public static class SequenceCode
     {
         int orbit = seq.Orbit;
         var mids = sampleMidis.Count > 0 ? sampleMidis : new[] { 60 };
-        var notes = seq.Playing.ToList();
-        var sb = new StringBuilder();
+        var units = Units(seq, mids);
         string header = $"{sound}: {seq.Length} steps, {Num(seq.Bpm)} bpm";
+        if (units.Count == 0) return Block(header, seq.Bpm, $"d{orbit} $ silence");
         string end = seq.End switch { NoteEnd.Legato => " # legato 1", NoteEnd.Cut => " # cut 1", _ => "" };
-        string prefix = $"d{orbit} $ {SwingPrefix(seq.Swing)}{Speed(seq.Length)}";
-        if (notes.Count == 0) return Block(header, seq.Bpm, $"d{orbit} $ silence");
 
-        var groups = notes.GroupBy(n => SampleFor(n.Midi, mids)).OrderBy(g => g.Key).ToList();
-        string Pattern(IGrouping<int, SeqNote> g) =>
-            string.Join(", ", Lanes(g).Select(l => LaneText(l, seq.Length, n => NoteToken(n.Midi - mids[g.Key]))));
+        // One layer per sample (n can't change within a stacked step), each split into lanes that don't overlap.
+        var layers = units.GroupBy(u => u.Sample).OrderBy(g => g.Key)
+            .Select(g => (Sample: g.Key, Lanes: Lanes(g.Select(u => new Cell(u.Step, u.Length, UnitToken(u, mids[g.Key]))))))
+            .ToList();
+        bool barByBar = BarByBar(seq.Length, layers.SelectMany(l => l.Lanes.SelectMany(x => x)));
+        string prefix = $"d{orbit} $ {SwingPrefix(seq.Swing)}{(barByBar ? "" : Speed(seq.Length))}";
+        string Pattern(List<List<Cell>> lanes) => string.Join(", ", lanes.Select(l => LaneText(l, seq.Length, barByBar, Grouped)));
 
-        if (groups.Count == 1)
+        var sb = new StringBuilder();
+        if (layers.Count == 1)
         {
-            var g = groups[0];
-            string n = mids.Count > 1 || g.Key != 0 ? $" # n {g.Key}" : "";
-            sb.Append(prefix).Append($"note \"{Pattern(g)}\" # s \"{sound}\"{n}{end}");
+            var layer = layers[0];
+            string n = mids.Count > 1 || layer.Sample != 0 ? $" # n {layer.Sample}" : "";
+            sb.Append(prefix).Append($"note \"{Pattern(layer.Lanes)}\" # s \"{sound}\"{n}{end}");
         }
         else
         {
-            // One layer per sample: n can't change within a stacked step otherwise.
             sb.Append(prefix).Append("stack\n");
-            for (int i = 0; i < groups.Count; i++)
-                sb.Append(i == 0 ? "  [ " : "  , ").Append($"note \"{Pattern(groups[i])}\" # n {groups[i].Key}\n");
+            for (int i = 0; i < layers.Count; i++)
+                sb.Append(i == 0 ? "  [ " : "  , ").Append($"note \"{Pattern(layers[i].Lanes)}\" # n {layers[i].Sample}\n");
             sb.Append($"  ] # s \"{sound}\"{end}");
         }
         return Block(header, seq.Bpm, sb.ToString());
@@ -456,22 +550,37 @@ public static class SequenceCode
         return string.Join(' ', tokens);
     }
 
+    /// <summary>A drum row (one-step hits): repeating rows as "[bd ~ ~ ~]*4", others grouped by beat.</summary>
+    private static string DrumRow(IReadOnlyList<Cell> cells, int from, int span)
+    {
+        if (cells.Count == 0) return "~";
+        var tokens = Enumerable.Range(from, span).Select(i => cells.FirstOrDefault(c => c.Step == i).Token ?? "~").ToList();
+        string compressed = Compress(tokens);
+        return compressed.Contains('*') ? compressed : Grouped(cells, from, span);
+    }
+
     /// <summary>Code for a beat: one line per drum in a stack, with gain where hits are soft or accented.</summary>
     public static string Beat(BeatSequence seq, IReadOnlyList<(string Drum, string Sound)> drums)
     {
         int orbit = seq.Orbit;
-        var sb = new StringBuilder();
+        bool barByBar = seq.Length > StepsPerCycle && seq.Length % StepsPerCycle == 0;
         var lines = new List<string>();
         foreach (var (drum, sound) in drums)
         {
             if (seq.Muted.Contains(drum) || !seq.HasHits(drum)) continue;
             var row = seq.Row(drum).Take(seq.Length).ToList();
-            string line = $"s \"{Compress(row.Select(v => v > 0 ? sound : "~").ToList())}\"";
-            if (row.Any(v => v is BeatSequence.Soft or BeatSequence.Accent))
-                line += $" # gain \"{Compress(row.Select(v => Num(BeatSequence.Gain(v))).ToList())}\"";
+            var hits = Enumerable.Range(0, row.Count).Where(i => row[i] > BeatSequence.Off).ToList();
+            string line = $"s \"{LaneText(hits.Select(i => new Cell(i, 1, sound)).ToList(), seq.Length, barByBar, DrumRow)}\"";
+            if (hits.Any(i => row[i] is BeatSequence.Soft or BeatSequence.Accent))
+            {
+                // gain takes its values at the hits (the structure comes from s), so rests can stay rests.
+                var gains = hits.Select(i => new Cell(i, 1, Num(BeatSequence.Gain(row[i])))).ToList();
+                line += $" # gain \"{LaneText(gains, seq.Length, barByBar, DrumRow)}\"";
+            }
             lines.Add(line);
         }
-        string prefix = $"d{orbit} $ {SwingPrefix(seq.Swing)}{Speed(seq.Length)}";
+        string prefix = $"d{orbit} $ {SwingPrefix(seq.Swing)}{(barByBar ? "" : Speed(seq.Length))}";
+        var sb = new StringBuilder();
         if (lines.Count == 0) sb.Append($"d{orbit} $ silence");
         else if (lines.Count == 1) sb.Append(prefix).Append(lines[0]);
         else
@@ -505,15 +614,19 @@ public static class SequenceRenderer
         int loop = seq.LoopSamples(sr);
         var left = new float[loop];
         var right = new float[loop];
-        var notes = seq.Playing.ToList();
-        if (samples.Count == 0 || notes.Count == 0) return new RenderedNote(60, left, right, sr);
+        if (samples.Count == 0) return new RenderedNote(60, left, right, sr);
         var mids = samples.Select(s => s.Midi).ToList();
-        var starts = notes.Select(n => seq.StepStart(n.Step, sr)).Distinct().OrderBy(s => s).ToList();
+        var notes = SequenceCode.Units(seq, mids)
+            .SelectMany(u => u.Midis.Select(m => (Unit: u, Midi: m)))
+            .ToList();
+        if (notes.Count == 0) return new RenderedNote(60, left, right, sr);
+        var starts = notes.Select(n => seq.StepStart(n.Unit.Step, sr)).Distinct().OrderBy(s => s).ToList();
         int fade = (int)(0.008 * sr);
 
-        foreach (var n in notes)
+        foreach (var (unit, midi) in notes)
         {
-            var sample = samples[SequenceCode.SampleFor(n.Midi, mids)];
+            var n = new SeqNote { Step = unit.Step, Length = unit.Length, Midi = midi };
+            var sample = samples[unit.Sample];
             double rate = Math.Pow(2, (n.Midi - sample.Midi) / 12.0) * sample.SampleRate / sr;
             int start = seq.StepStart(n.Step, sr);
             int full = (int)((sample.Left.Length - 1) / rate);

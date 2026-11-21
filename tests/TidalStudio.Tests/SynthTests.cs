@@ -27,6 +27,27 @@ public class SynthTests
         return best * (double)sampleRate / n;
     }
 
+    private static float Peak(RenderedNote n) => n.Left.Concat(n.Right).Max(Math.Abs);
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Volume_sets_the_output_level_also_when_normalising(bool normalize)
+    {
+        var loud = Sine();
+        loud.Normalize = normalize;
+        loud.Volume = 0.8;
+        var quiet = loud.Clone();
+        quiet.Volume = 0.4;
+        Assert.InRange(Peak(SynthEngine.Render(quiet, 60)) / Peak(SynthEngine.Render(loud, 60)), 0.45, 0.55);
+        if (normalize) Assert.InRange(Peak(SynthEngine.Render(loud, 60)), 0.8 * 0.89 - 0.01, 0.8 * 0.89 + 0.01);
+
+        var fm = new FmPatch { Normalize = normalize, Hold = 0.3, Volume = 0.8 };
+        var fmQuiet = fm.Clone();
+        fmQuiet.Volume = 0.4;
+        Assert.InRange(Peak(FmEngine.Render(fmQuiet, 60)) / Peak(FmEngine.Render(fm, 60)), 0.45, 0.55);
+    }
+
     [Theory]
     [InlineData(69, 440.0)]   // a5 in Tidal terms = MIDI 69
     [InlineData(60, 261.63)]  // c5 = note 0

@@ -40,7 +40,8 @@ public static class FmEngine
         Array.Resize(ref left, length);
         Array.Resize(ref right, length);
         SynthEngine.FadeOut(left, right, (int)(0.005 * sr));
-        if (patch.Normalize) SynthEngine.Normalize(left, right, 0.89);
+        // Normalising sets the peak, so Volume has to set the level here too.
+        if (patch.Normalize) SynthEngine.Normalize(left, right, 0.89 * Math.Clamp(patch.Volume, 0, 1));
         else SynthEngine.Scale(left, right, 1);
         return new RenderedNote(midi, left, right, sr);
     }

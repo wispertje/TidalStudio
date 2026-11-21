@@ -35,25 +35,42 @@ public class SequenceTests
         var s = Melody((0, 2, 60), (4, 1, 64), (8, 4, 55));
         string code = SequenceCode.Melody(s, "lead", new[] { 60 });
         Assert.Contains("do\n  setcps (120/60/4)\n", code);
-        Assert.Contains("  d1 $ note \"c@2 ~ ~ e ~ ~ ~ g4@4 ~ ~ ~ ~\" # s \"lead\" # legato 1", code);
+        // Grouped by beat with Tidal's ".": a note filling a beat is just its name.
+        Assert.Contains("  d1 $ note \"c@2 ~ ~ . e ~ ~ ~ . g4 . ~\" # s \"lead\" # legato 1", code);
         Assert.DoesNotContain("# n", code);
     }
 
     [Fact]
-    public void Melody_code_writes_chords_as_lanes_and_long_sequences_slower()
+    public void Notes_crossing_beats_are_grouped_by_half_bar_or_written_flat_with_rest_runs()
+    {
+        var half = Melody((0, 3, 60), (3, 3, 64), (14, 2, 67));
+        Assert.Contains("note \"c@3 e@3 ~ ~ . ~@6 g@2\"", SequenceCode.Melody(half, "lead", new[] { 60 }));
+        var flat = Melody((0, 3, 60), (6, 4, 64), (14, 2, 67)); // crosses the half bar too
+        Assert.Contains("note \"c@3 ~@3 e@4 ~@4 g@2\"", SequenceCode.Melody(flat, "lead", new[] { 60 }));
+    }
+
+    [Fact]
+    public void Melody_code_stacks_notes_played_together_and_writes_whole_bars_per_cycle()
     {
         var s = Melody((0, 4, 60), (0, 4, 64), (0, 4, 67), (16, 4, 62));
         s.Length = 32;
         s.End = NoteEnd.Cut;
         s.Orbit = 3;
         string code = SequenceCode.Melody(s, "pad", new[] { 60 });
-        Assert.Contains("d3 $ slow 2 $ note \"c@4 ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ d@4 ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~, e@4", code);
-        Assert.Contains("# cut 1", code);
-        // Every lane covers all 32 steps.
-        string pattern = code[(code.IndexOf("note \"", StringComparison.Ordinal) + 6)..];
-        pattern = pattern[..pattern.IndexOf('"')];
-        foreach (var lane in pattern.Split(", "))
-            Assert.Equal(32, lane.Split(' ').Sum(t => t.Contains('@') ? int.Parse(t[(t.IndexOf('@') + 1)..]) : 1));
+        // No note crosses a bar line: one bar per cycle with <>, no slow.
+        Assert.Contains("d3 $ note \"<[[c,e,g] . ~ . ~ . ~] [d . ~ . ~ . ~]>\" # s \"pad\" # cut 1", code);
+    }
+
+    [Fact]
+    public void Identical_bars_are_written_once_and_notes_across_bar_lines_slow_down_one_sequence()
+    {
+        var same = Melody((0, 3, 64), (3, 3, 67), (16, 3, 64), (19, 3, 67));
+        same.Length = 32;
+        Assert.Contains("d1 $ note \"e@3 g@3 ~ ~ . ~\"", SequenceCode.Melody(same, "x", new[] { 60 }));
+
+        var across = Melody((14, 4, 60), (20, 1, 62));
+        across.Length = 32;
+        Assert.Contains("d1 $ slow 2 $ note \"~@14 c@4 ~ ~ d ~@11\"", SequenceCode.Melody(across, "x", new[] { 60 }));
     }
 
     [Fact]
@@ -62,9 +79,20 @@ public class SequenceTests
         var s = Melody((0, 1, 50), (4, 1, 64));
         string code = SequenceCode.Melody(s, "bass", new[] { 48, 60 });
         Assert.Contains("stack", code);
-        Assert.Contains("note \"d ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\" # n 0", code); // d3 = c3 sample + 2
-        Assert.Contains("note \"~ ~ ~ ~ e ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~\" # n 1", code); // e5 = c5 sample + 4
+        Assert.Contains("note \"d ~ ~ ~ . ~ . ~ . ~\" # n 0", code); // d3 = c3 sample + 2
+        Assert.Contains("note \"~ . e ~ ~ ~ . ~ . ~\" # n 1", code); // e5 = c5 sample + 4
         Assert.Contains("] # s \"bass\" # legato 1", code);
+    }
+
+    [Fact]
+    public void A_chord_uses_one_sample_the_closest_to_its_lowest_note()
+    {
+        // F#4 minor (66 69 73): 66 is closest to the c5 sample (60), 73 alone would pick c6 (72).
+        var s = Melody((0, 4, 66), (0, 4, 69), (0, 4, 73));
+        var units = SequenceCode.Units(s, new[] { 48, 60, 72 });
+        Assert.Single(units);
+        Assert.Equal(1, units[0].Sample);
+        Assert.Contains("note \"[fs,a,cs6] . ~ . ~ . ~\" # s \"x\" # n 1", SequenceCode.Melody(s, "x", new[] { 48, 60, 72 }));
     }
 
     [Fact]

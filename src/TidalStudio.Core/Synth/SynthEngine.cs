@@ -35,7 +35,8 @@ public static class SynthEngine
         Array.Resize(ref left, length);
         Array.Resize(ref right, length);
         FadeOut(left, right, (int)(0.005 * sr));
-        if (patch.Normalize) Normalize(left, right, 0.89); // -1 dBFS
+        // Normalising sets the peak, so Volume has to set the level here too (it also feeds the voices, before drive).
+        if (patch.Normalize) Normalize(left, right, 0.89 * Math.Clamp(patch.Volume, 0, 1)); // -1 dBFS at full volume
         else Scale(left, right, 1);
         return new RenderedNote(midi, left, right, sr);
     }
