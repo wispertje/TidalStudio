@@ -184,6 +184,7 @@ public sealed class SignalFlowView : Control
             ("fx-chorus", "CHORUS", fx.ChorusMix > 0 ? Pct(fx.ChorusMix) : "off", FxColor, fx.ChorusMix > 0),
             ("fx-delay", "DELAY", fx.DelayMix > 0 ? $"{Pct(fx.DelayMix)} · {fx.DelayTime * 1000:0} ms" : "off", FxColor, fx.DelayMix > 0),
             ("fx-reverb", "REVERB", fx.ReverbMix > 0 ? $"{Pct(fx.ReverbMix)} · size {Pct(fx.ReverbSize)}" : "off", FxColor, fx.ReverbMix > 0),
+            ("fx-tape", "TAPE", fx.Tape > 0 ? Pct(fx.Tape) : "off", FxColor, fx.Tape > 0),
             ("out", "OUT", $"{p.SampleRate / 1000.0:0.#} kHz{(p.Normalize ? " · norm" : "")}", EnvColor, true),
         };
     }

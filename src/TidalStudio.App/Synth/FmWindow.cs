@@ -380,12 +380,17 @@ public sealed class FmWindow : Window
         var body = SynthWindow.KnobRow(
             K("Drive", 0, 1, 0, () => fx.Drive, v => fx.Drive = v, SynthWindow.Percent, accent: FxColor),
             K("Chorus", 0, 1, 0, () => fx.ChorusMix, v => fx.ChorusMix = v, SynthWindow.Percent, accent: FxColor),
+            K("Rate", 0.05, 8, 0.6, () => fx.ChorusRate, v => fx.ChorusRate = v, SynthWindow.RateText, log: true, accent: FxColor),
+            K("Depth", 0, 10, 4, () => fx.ChorusDepth, v => fx.ChorusDepth = v, SynthWindow.Millis, accent: FxColor),
             K("Delay", 0, 1, 0, () => fx.DelayMix, v => fx.DelayMix = v, SynthWindow.Percent, accent: FxColor),
             K("Time", 0.02, 1.5, 0.25, () => fx.DelayTime, v => fx.DelayTime = v, SynthWindow.Seconds, log: true, accent: FxColor),
             K("Feedback", 0, 0.95, 0.35, () => fx.DelayFeedback, v => fx.DelayFeedback = v, SynthWindow.Percent, accent: FxColor),
             K("Reverb", 0, 1, 0, () => fx.ReverbMix, v => fx.ReverbMix = v, SynthWindow.Percent, accent: FxColor),
-            K("Size", 0, 1, 0.7, () => fx.ReverbSize, v => fx.ReverbSize = v, SynthWindow.Percent, accent: FxColor));
-        return SynthWindow.Panel("EFFECTS", body, FxColor);
+            K("Size", 0, 1, 0.7, () => fx.ReverbSize, v => fx.ReverbSize = v, SynthWindow.Percent, accent: FxColor),
+            K("Tape", 0, 1, 0, () => fx.Tape, v => fx.Tape = v, SynthWindow.Percent, accent: FxColor));
+        var panel = SynthWindow.Panel("EFFECTS", body, FxColor);
+        ToolTip.SetTip(panel, SynthWindow.FxTip);
+        return panel;
     }
 
     private Control OutputSection()

@@ -29,6 +29,52 @@ public class SynthTests
 
     private static float Peak(RenderedNote n) => n.Left.Concat(n.Right).Max(Math.Abs);
 
+    [Fact]
+    public void Chorus_rate_depth_and_tape_change_the_sound_and_old_patches_stay_the_same()
+    {
+        var p = Sine();
+        p.Normalize = false;
+        p.Fx.ChorusMix = 0.5;
+        var plain = SynthEngine.Render(p, 60).Left;
+
+        foreach (var (name, set) in new (string, Action<FxSettings>)[]
+                 {
+                     ("rate", f => f.ChorusRate = 3), ("depth", f => f.ChorusDepth = 9), ("tape", f => f.Tape = 0.7),
+                 })
+        {
+            var q = p.Clone();
+            set(q.Fx);
+            var changed = SynthEngine.Render(q, 60).Left;
+            Assert.True(changed.All(float.IsFinite), name);
+            Assert.True(changed.Zip(plain, (x, y) => Math.Abs(x - y)).Max() > 0.01, $"{name} made no difference");
+        }
+
+        // A patch saved before these controls existed loads with the old chorus (0.6 Hz, 4 ms) and no tape.
+        string json = p.ToJson();
+        string old = string.Join('\n', json.Split('\n').Where(l => !l.Contains("\"ChorusRate\"") && !l.Contains("\"ChorusDepth\"") && !l.Contains("\"Tape\"")));
+        old = System.Text.RegularExpressions.Regex.Replace(old, ",(\\s*})", "$1");
+        var loaded = SynthPatch.FromJson(old);
+        Assert.Equal(0.6, loaded.Fx.ChorusRate);
+        Assert.Equal(4, loaded.Fx.ChorusDepth);
+        Assert.Equal(0, loaded.Fx.Tape);
+        Assert.Equal(plain, SynthEngine.Render(loaded, 60).Left);
+    }
+
+    [Fact]
+    public void Tape_keeps_the_level_and_softens_the_top()
+    {
+        var p = Sine();
+        p.Oscillators[0].Position = 2 / 3.0; // saw: lots of highs
+        p.Normalize = false;
+        var dry = SynthEngine.Render(p, 60);
+        p.Fx.Tape = 1;
+        var taped = SynthEngine.Render(p, 60);
+        double Rms(float[] x) => Math.Sqrt(x.Average(v => (double)v * v));
+        double Highs(float[] x) => Math.Sqrt(x.Skip(1).Zip(x, (a, b) => (double)(a - b) * (a - b)).Average());
+        Assert.InRange(Rms(taped.Left) / Rms(dry.Left), 0.6, 1.2);
+        Assert.True(Highs(taped.Left) < Highs(dry.Left) * 0.9);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

@@ -29,6 +29,11 @@ public static class PresetSamples
         ["Warm sequencer bass"] = "seqwarmbass",
         ["Bright arp"] = "seqbrightarp",
         ["Plucky sequence (echo)"] = "seqpluck",
+        ["Night drive bass"] = "seqnight",
+        ["Detuned saw bass"] = "seqdetune",
+        ["Pulse bass (narrow)"] = "seqpulse",
+        ["Neon arp (echo)"] = "seqneonarp",
+        ["Tape arp"] = "seqtapearp",
     };
 
     /// <summary>The tempo of the synth pop sequences (the Acid window and the synth pop example use it too).</summary>
@@ -76,7 +81,7 @@ public static class PresetSamples
         }
         foreach (var (name, apply) in AcidLines.AllSounds)
         {
-            bool pop = AcidLines.PopSounds.Any(s => s.Name == name);
+            bool pop = AcidLines.PopSounds.Concat(AcidLines.SynthwaveSounds).Any(s => s.Name == name);
             var box = AcidLines.FromPatterns(pop ? AcidLines.PopPatterns : AcidLines.DemoPatterns);
             apply(box);
             box.Name = AcidSoundName(name);

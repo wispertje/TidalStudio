@@ -312,7 +312,11 @@ public static class SynthEngine
 
     // ------------------------------------------------------------------ effects
 
-    internal static void ApplyFx(FxSettings fx, int sr, float[] left, float[] right)
+    /// <param name="loopSeconds">
+    /// For loops (Tidepool Acid): the length of one pass. The chorus and tape LFOs are then tuned to whole cycles per pass,
+    /// so the end of a saved loop flows into its start without a click.
+    /// </param>
+    internal static void ApplyFx(FxSettings fx, int sr, float[] left, float[] right, double? loopSeconds = null)
     {
         if (fx.Drive > 0)
         {
@@ -324,13 +328,21 @@ public static class SynthEngine
                 right[i] = (float)(Math.Tanh(right[i] * d) * norm);
             }
         }
-        if (fx.ChorusMix > 0) Chorus(fx.ChorusMix, sr, left, right);
+        if (fx.ChorusMix > 0) Chorus(fx, sr, left, right, loopSeconds);
         if (fx.DelayMix > 0) Delay(fx, sr, left, right);
         if (fx.ReverbMix > 0) new Reverb(sr, fx.ReverbSize).Process(left, right, fx.ReverbMix);
+        if (fx.Tape > 0) Tape(Math.Clamp(fx.Tape, 0, 1), sr, left, right, loopSeconds);
     }
 
-    private static void Chorus(double mix, int sr, float[] left, float[] right)
+    /// <summary>An LFO rate rounded to whole cycles per loop pass (at least one), or unchanged when not rendering a loop.</summary>
+    private static double LoopRate(double rate, double? loopSeconds) =>
+        loopSeconds is { } s && s > 0 ? Math.Max(1, Math.Round(rate * s)) / s : rate;
+
+    private static void Chorus(FxSettings fx, int sr, float[] left, float[] right, double? loopSeconds)
     {
+        double mix = fx.ChorusMix;
+        double rate = LoopRate(Math.Clamp(fx.ChorusRate, 0.05, 8), loopSeconds);
+        double depth = Math.Clamp(fx.ChorusDepth, 0, 10) / 1000;
         int max = (int)(0.03 * sr) + 2;
         var bufL = new float[max];
         var bufR = new float[max];
@@ -340,11 +352,43 @@ public static class SynthEngine
             bufL[w] = left[i];
             bufR[w] = right[i];
             double t = i / (double)sr;
-            double dl = (0.012 + 0.004 * Math.Sin(2 * Math.PI * 0.6 * t)) * sr;
-            double dr = (0.012 + 0.004 * Math.Sin(2 * Math.PI * 0.6 * t + Math.PI)) * sr;
+            double dl = (0.012 + depth * Math.Sin(2 * Math.PI * rate * t)) * sr;
+            double dr = (0.012 + depth * Math.Sin(2 * Math.PI * rate * t + Math.PI)) * sr;
             double wl = Tap(bufL, w, dl, max), wr = Tap(bufR, w, dr, max);
             left[i] = (float)(left[i] * (1 - mix * 0.5) + wl * mix);
             right[i] = (float)(right[i] * (1 - mix * 0.5) + wr * mix);
+        }
+    }
+
+    /// <summary>
+    /// Tape: wow (a slow pitch drift) and flutter (a fast, small one) from a modulated delay, gentle saturation, and a top
+    /// end that rolls off as <paramref name="amount"/> rises — the worn, nostalgic texture of a cassette or a tape master.
+    /// </summary>
+    private static void Tape(double amount, int sr, float[] left, float[] right, double? loopSeconds)
+    {
+        double wowRate = LoopRate(0.45, loopSeconds), flutterRate = LoopRate(6.5, loopSeconds);
+        double wow = amount * 0.0012 * sr, flutter = amount * 0.00006 * sr;     // depth in samples
+        double centre = wow + flutter;                                           // delay never goes below 0
+        int max = (int)Math.Ceiling(2 * centre) + 3;
+        var bufL = new float[max];
+        var bufR = new float[max];
+        double drive = 1 + amount * 1.5;
+        double cutoff = 16000 * Math.Pow(6000 / 16000.0, amount);
+        double a = 1 - Math.Exp(-2 * Math.PI * Math.Min(cutoff, sr * 0.45) / sr);
+        double lpL = 0, lpR = 0;
+        for (int i = 0; i < left.Length; i++)
+        {
+            int w = i % max;
+            bufL[w] = left[i];
+            bufR[w] = right[i];
+            double t = i / (double)sr;
+            double delay = centre + wow * Math.Sin(2 * Math.PI * wowRate * t) + flutter * Math.Sin(2 * Math.PI * flutterRate * t);
+            double l = Math.Tanh(Tap(bufL, w, delay, max) * drive) / drive;
+            double r = Math.Tanh(Tap(bufR, w, delay, max) * drive) / drive;
+            lpL += a * (l - lpL);
+            lpR += a * (r - lpR);
+            left[i] = (float)lpL;
+            right[i] = (float)lpR;
         }
     }
 

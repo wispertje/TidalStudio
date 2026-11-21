@@ -48,6 +48,14 @@ public static class FmPresets
                 ("Pop bell lead", PopBellLead),
                 ("Pop mallet arp", PopMalletArp),
             }),
+            ("Synthwave", new (string, Func<FmPatch>)[]
+            {
+                ("Chorus EP (ballad)", WaveEp),
+                ("Sunset bells", WaveBells),
+                ("FM sax", Sax),
+                ("Night bass", WaveBass),
+                ("Tape glass pad", WavePad),
+            }),
         };
 
     public static readonly IReadOnlyList<(string Name, Func<FmPatch> Create)> All = Groups.SelectMany(g => g.Presets).ToList();
@@ -399,6 +407,90 @@ public static class FmPresets
         p.Fx.DelayMix = 0.15;
         p.Fx.DelayTime = 0.375;
         p.Fx.ReverbMix = 0.25;
+        return p;
+    }
+
+    // ------------------------------------------------------------------ synthwave
+
+    /// <summary>The tine piano drenched in a slow, deep chorus with a touch of tape: the 80s ballad electric piano.</summary>
+    private static FmPatch WaveEp()
+    {
+        var p = TinePiano();
+        p.Name = "fmwaveep";
+        p.Fx.ChorusMix = 0.65; p.Fx.ChorusRate = 0.7; p.Fx.ChorusDepth = 5.5;
+        p.Fx.DelayMix = 0.12; p.Fx.DelayTime = 0.375; p.Fx.DelayFeedback = 0.3;
+        p.Fx.ReverbMix = 0.35; p.Fx.ReverbSize = 0.85; p.Fx.Tape = 0.15;
+        return p;
+    }
+
+    /// <summary>Bright bells with long tails, echo and a big room: sparkle over pads.</summary>
+    private static FmPatch WaveBells() => P("fmwavebell", 3, 0, new[]
+    {
+        Op(1, 0.85, 0.001, 4, 0, 3),
+        Op(3.5, 0.5, 0.001, 2.5, 0, 2),
+        Op(2, 0.55, 0.001, 3, 0, 2.5, detune: 5),
+        Op(5.19, 0.3, 0.001, 1.2, 0, 1),
+        Op(1, 0.4, 0.001, 3.5, 0, 3, detune: -5),
+        Op(14, 0.12, 0.001, 0.3, 0, 0.3),
+    }, p =>
+    {
+        p.Notes = "c4 c5 c6";
+        p.Hold = 0.5;
+        p.MaxLength = 8;
+        p.Fx.ChorusMix = 0.35;
+        p.Fx.DelayMix = 0.25; p.Fx.DelayTime = 0.375; p.Fx.DelayFeedback = 0.4;
+        p.Fx.ReverbMix = 0.5; p.Fx.ReverbSize = 0.92;
+    });
+
+    /// <summary>
+    /// A reed: the carrier's brightness swells in with the attack, a 3:1 modulator adds the nasal edge, and operator 6's
+    /// feedback (noise) breathes through a quiet second carrier. Notes scoop up into pitch and the vibrato comes in late.
+    /// </summary>
+    private static FmPatch Sax() => P("fmsax", 5, 0.9, new[]
+    {
+        Op(1, 0.9, 0.04, 0.3, 0.85, 0.2),
+        Op(1, 0.55, 0.08, 0.4, 0.45, 0.2, keyScale: 0.3),
+        Op(3, 0.18, 0.05, 0.3, 0.15, 0.2),
+        Op(1, 0.14, 0.03, 0.2, 0.3, 0.1),
+        Op(1, 0.3, 0.01, 0.2, 0.3, 0.1),
+        Op(1, 0.8, 0.001, 0.2, 0.4, 0.1), // full feedback: breath noise
+    }, p =>
+    {
+        p.PitchEnvAmount = -0.6;
+        p.PitchEnvDecay = 0.08;
+        p.Vibrato = 14;
+        p.LfoRate = 5.2;
+        p.LfoDelay = 0.45;
+        p.Notes = "c3 c4 c5";
+        p.Hold = 1.2;
+        p.MaxLength = 4;
+        p.Fx.DelayMix = 0.2; p.Fx.DelayTime = 0.375; p.Fx.DelayFeedback = 0.35;
+        p.Fx.ReverbMix = 0.35; p.Fx.ReverbSize = 0.85;
+    });
+
+    /// <summary>The solid FM bass, shorter, with a light chorus: driving eighth-note synthwave basslines.</summary>
+    private static FmPatch WaveBass()
+    {
+        var p = SolidBass();
+        p.Name = "fmwavebass";
+        p.Notes = "c1 c2 c3";
+        p.Hold = 0.25;
+        foreach (var op in p.Operators) op.Envelope.Release = 0.06;
+        p.Fx.ChorusMix = 0.3; p.Fx.ChorusRate = 0.7; p.Fx.ChorusDepth = 3;
+        return p;
+    }
+
+    /// <summary>The crystal pad, slower and wider, worn by tape: a shimmering bed under chords.</summary>
+    private static FmPatch WavePad()
+    {
+        var p = CrystalPad();
+        p.Name = "fmwavepad";
+        p.Notes = "c3 c4 c5";
+        p.Hold = 2.5;
+        p.MaxLength = 9;
+        p.Fx.ChorusMix = 0.65; p.Fx.ChorusRate = 0.4; p.Fx.ChorusDepth = 7;
+        p.Fx.DelayMix = 0.15; p.Fx.DelayTime = 0.5; p.Fx.DelayFeedback = 0.35;
+        p.Fx.ReverbMix = 0.5; p.Fx.ReverbSize = 0.92; p.Fx.Tape = 0.3;
         return p;
     }
 

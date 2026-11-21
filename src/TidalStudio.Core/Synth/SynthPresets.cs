@@ -26,6 +26,7 @@ public static class SynthPresets
             ("Acid techno", AcidPresets.All),
             ("Retro", RetroPresets.All),
             ("Synth pop", PopPresets.All),
+            ("Synthwave", SynthwavePresets.All),
         };
 
     /// <summary>Every preset, in menu order.</summary>

@@ -58,8 +58,31 @@ public static class AcidLines
             new AcidFx { DelayMix = 0.35, DelaySteps = 6, DelayFeedback = 0.45, ReverbMix = 0.25, ReverbSize = 0.7 })),
     };
 
-    /// <summary>Every sound, acid and synth pop.</summary>
-    public static IEnumerable<(string Name, Action<AcidBox> Apply)> AllSounds => Sounds.Concat(PopSounds);
+    /// <summary>
+    /// Synthwave sounds: chorused and detuned basses with a sub, pulse basses and echoing arps (they use the pulse width,
+    /// sub, detune, key tracking, chorus and tape controls). Use them with the synth pop patterns.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Name, Action<AcidBox> Apply)> SynthwaveSounds = new (string, Action<AcidBox>)[]
+    {
+        ("Night drive bass", b => Set(b,
+            new AcidVoice { Wave = AcidWave.Square, PulseWidth = 0.4, Sub = 0.6, Cutoff = 650, Resonance = 0.25, EnvMod = 0.3, Decay = 0.3, Accent = 0.25, Gate = 0.8, Drive = 0.1, KeyTrack = 0.3 },
+            new AcidFx { ChorusMix = 0.3, ChorusRate = 0.7 })),
+        ("Detuned saw bass", b => Set(b,
+            new AcidVoice { Detune = 0.5, Sub = 0.3, Cutoff = 800, Resonance = 0.3, EnvMod = 0.4, Decay = 0.2, Accent = 0.3, Gate = 0.6, Drive = 0.12 },
+            new AcidFx { ChorusMix = 0.25, Tape = 0.1 })),
+        ("Pulse bass (narrow)", b => Set(b,
+            new AcidVoice { Wave = AcidWave.Square, PulseWidth = 0.22, Sub = 0.45, Cutoff = 1000, Resonance = 0.15, EnvMod = 0.35, Decay = 0.22, Accent = 0.3, Gate = 0.55, Drive = 0.05 },
+            new AcidFx())),
+        ("Neon arp (echo)", b => Set(b,
+            new AcidVoice { Wave = AcidWave.Square, PulseWidth = 0.35, Detune = 0.3, KeyTrack = 0.6, Cutoff = 1400, Resonance = 0.3, EnvMod = 0.45, Decay = 0.15, Accent = 0.35, Gate = 0.4, Drive = 0 },
+            new AcidFx { DelayMix = 0.35, DelaySteps = 3, DelayFeedback = 0.45, ReverbMix = 0.3, ReverbSize = 0.8, ChorusMix = 0.35 })),
+        ("Tape arp", b => Set(b,
+            new AcidVoice { Detune = 0.2, KeyTrack = 0.5, Cutoff = 1200, Resonance = 0.25, EnvMod = 0.4, Decay = 0.18, Accent = 0.3, Gate = 0.45, Drive = 0.05 },
+            new AcidFx { DelayMix = 0.3, DelaySteps = 6, DelayFeedback = 0.4, ReverbMix = 0.3, ReverbSize = 0.85, ChorusMix = 0.4, ChorusRate = 0.5, Tape = 0.5 })),
+    };
+
+    /// <summary>Every sound: acid, synth pop and synthwave.</summary>
+    public static IEnumerable<(string Name, Action<AcidBox> Apply)> AllSounds => Sounds.Concat(PopSounds).Concat(SynthwaveSounds);
 
     private static void Set(AcidBox box, AcidVoice voice, AcidFx fx)
     {

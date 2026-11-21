@@ -12,6 +12,7 @@ public static class ExampleScripts
         ("Tidepool Acid loops", "03-tidepool-acid.tidal"),
         ("Synth pop sketch (all three)", "04-synth-pop-song.tidal"),
         ("Tidepool FM samples", "05-tidepool-fm.tidal"),
+        ("Synthwave sketch (all four)", "06-synthwave.tidal"),
     };
 
     /// <summary>The script's text (empty if it is missing from the build).</summary>

@@ -64,6 +64,7 @@
                     <MenuItem Header="Using Tidepool Drums kits" Click="OnOpenExample" Tag="02-tidepool-drums.tidal" />
                     <MenuItem Header="Using Tidepool Acid loops" Click="OnOpenExample" Tag="03-tidepool-acid.tidal" />
                     <MenuItem Header="Using Tidepool FM samples" Click="OnOpenExample" Tag="05-tidepool-fm.tidal" />
+                    <MenuItem Header="Synthwave sketch (80s presets of all four synths)" Click="OnOpenExample" Tag="06-synthwave.tidal" />
                     <MenuItem Header="Synth pop sketch (all three synths)" Click="OnOpenExample" Tag="04-synth-pop-song.tidal" />
                 </MenuItem>
             </MenuItem>

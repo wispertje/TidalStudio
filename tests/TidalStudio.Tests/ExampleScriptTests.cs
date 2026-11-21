@@ -33,6 +33,8 @@ public class ExampleScriptTests
             foreach (var v in kit.Voices) known.Add(kit.SoundName(v));
         }
         foreach (var abbr in DrumKits.Abbreviations.Keys) known.Add("mykit" + abbr);
+        // The Acid sounds render as loops under their own names (seqnight, acidclassic …).
+        foreach (var (name, _) in AcidLines.AllSounds) known.Add(PresetSamples.AcidSoundName(name));
 
         var sounds = new Regex("\\bs \\(?\"([^\"]*)\"");
         var missing = new List<string>();

@@ -72,6 +72,69 @@ public class AcidTests
     }
 
     [Fact]
+    public void Loop_is_seamless_with_chorus_tape_sub_and_detune()
+    {
+        var box = SmallBox();
+        box.Normalize = false;
+        box.Voice.Sub = 0.5; box.Voice.Detune = 0.6; box.Voice.KeyTrack = 0.5;
+        box.Fx.ChorusMix = 0.6; box.Fx.ChorusRate = 0.7; box.Fx.Tape = 0.7; box.Fx.ReverbMix = 0.3;
+        var one = AcidEngine.Render(box, 1);
+        var two = AcidEngine.Render(box, 1, repeats: 2);
+        for (int i = 0; i < 2000; i++)
+            Assert.True(Math.Abs(one.Left[i] - two.Left[one.Left.Length + i]) < 0.02, $"sample {i} differs");
+    }
+
+    [Fact]
+    public void Every_new_control_changes_the_sound()
+    {
+        var box = SmallBox();
+        box.Normalize = false;
+        var plain = AcidEngine.Render(box, 0).Left;
+        var changes = new (string Name, Action<AcidBox> Set)[]
+        {
+            ("pulse width", b => { b.Voice.Wave = AcidWave.Square; b.Voice.PulseWidth = 0.2; }),
+            ("sub", b => b.Voice.Sub = 0.6),
+            ("detune", b => b.Voice.Detune = 0.5),
+            ("key tracking", b => b.Voice.KeyTrack = 0.8),
+            ("chorus", b => b.Fx.ChorusMix = 0.5),
+            ("tape", b => b.Fx.Tape = 0.6),
+        };
+        var square = SmallBox();
+        square.Normalize = false;
+        square.Voice.Wave = AcidWave.Square;
+        var plainSquare = AcidEngine.Render(square, 0).Left;
+        foreach (var (name, set) in changes)
+        {
+            var b = SmallBox();
+            b.Normalize = false;
+            set(b);
+            var reference = b.Voice.Wave == AcidWave.Square ? plainSquare : plain;
+            var changed = AcidEngine.Render(b, 0).Left;
+            Assert.True(changed.All(float.IsFinite), name);
+            double difference = changed.Zip(reference, (x, y) => Math.Abs(x - y)).Max();
+            Assert.True(difference > 0.01, $"{name} made no difference");
+        }
+    }
+
+    [Fact]
+    public void Boxes_saved_before_the_new_controls_sound_the_same()
+    {
+        var box = SmallBox();
+        AcidLines.Sounds[2].Apply(box);
+        box.SampleRate = 22050;
+        // An older box: the JSON has none of the new properties.
+        string json = box.ToJson();
+        string old = string.Join('\n', json.Split('\n').Where(l =>
+            !new[] { "\"PulseWidth\"", "\"Sub\"", "\"Detune\"", "\"KeyTrack\"", "\"ChorusMix\"", "\"ChorusRate\"", "\"Tape\"" }.Any(l.Contains)));
+        old = System.Text.RegularExpressions.Regex.Replace(old, ",(\\s*})", "$1"); // drop trailing commas left behind
+        Assert.DoesNotContain("PulseWidth", old);
+        var loaded = AcidBox.FromJson(old);
+        Assert.Equal(0.5, loaded.Voice.PulseWidth);
+        Assert.Equal(0, loaded.Fx.Tape);
+        Assert.Equal(AcidEngine.Render(box, 0).Left, AcidEngine.Render(loaded, 0).Left);
+    }
+
+    [Fact]
     public void Slide_glides_instead_of_retriggering()
     {
         var box = SmallBox();

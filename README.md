@@ -82,17 +82,20 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     octave/semi/fine, unison up to 9 voices with detune and stereo spread, and a warp mode each (bend, sync, fold,
     crush).
   - A resonant filter (low/high/band-pass, notch) with drive, envelope and key tracking; amp, filter and mod
-    envelopes; two LFOs; drive, chorus, ping-pong delay and reverb. The mod envelope and LFOs can drive pitch,
+    envelopes; two LFOs; drive, chorus (with rate and depth, up to the wide, slow 80s ensemble sound), ping-pong delay,
+    reverb and **tape** (wow and flutter, saturation and a softer top end). The mod envelope and LFOs can drive pitch,
     wavetable position, cutoff, volume, pan or warp.
   - A **signal flow** diagram above the controls shows how the parts are connected: oscillators → mixer → filter →
-    amp → drive, chorus, delay, reverb → output, with a wire from every envelope and LFO to what it modulates.
+    amp → drive, chorus, delay, reverb, tape → output, with a wire from every envelope and LFO to what it modulates.
     Bypassed parts are dashed; click a block to jump to its controls.
-  - Factory presets in four groups: basics (leads, pads, basses, a bell, a kick and a hat), **acid techno** (303-style
+  - Factory presets in five groups: basics (leads, pads, basses, a bell, a kick and a hat), **acid techno** (303-style
     saw/square lines, accent, squelch, rubber, sub, sync scream, ringing, distorted, a sweep to `chop`, dub-delay lead,
     minor and fifths stabs, bleep) and **retro**
     (chiptune square/pulse/arp, 80s brass, PWM strings, polysynth, analog bass, FM e-piano, rave hoover, rave organ,
     sci-fi sweep, lo-fi keys) and **synth pop** (brass and major-chord stabs, pluck, arp bleep, clav pluck, octave
-    bass, square sub, glass bell keys, lush pad, synth choir, vibrato lead). Acid sounds are short notes: play them with `# legato 1` or `# cut 1`. Randomise, auto-preview while you turn knobs,
+    bass, square sub, glass bell keys, lush pad, synth choir, vibrato lead) and **synthwave** (80s retro, sound names
+    `wave…`: ensemble chorus pad, slowly swelling sunset pad, string machine, poly brass, a sax-like reed lead, neon lead,
+    chorus and driving basses, tape-worn keys, dream arp, glass pluck). Acid sounds are short notes: play them with `# legato 1` or `# cut 1`. Randomise, auto-preview while you turn knobs,
     and a keyboard to audition any note.
   - **Save to SuperDirt** renders each note in the Notes list (Tidal note names; `c5` is note 0) to a 24-bit WAV in
     `<samples folder>/<name>/`. With several notes, `n` picks them in order: `s "pad" # n "0 .. 5"`. With one note,
@@ -114,7 +117,7 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     diagram shows the layers and what is on; click a block to jump to it.
   - Models (kick, snare, tom, clap, closed/open hat, cymbal, rim, cowbell, zap, shaker) are starting points: *Start
     from* sets a drum up as one of them, *Reset* goes back to it, and *Randomise* (`Ctrl+R`) varies it. There are twelve
-    factory kits (analog, punchy, hard techno, acid house, lo-fi, electro; three acid techno kits: warehouse, rumble with a separate `rb` rumble drum, and 303 era; and three synth pop kits: gated 80s with gated-reverb snare and big toms, electro-pop with a tambourine, and minimal wave). You can add or remove drums, and ▶ Groove
+    factory kits (analog, punchy, hard techno, acid house, lo-fi, electro; three acid techno kits: warehouse, rumble with a separate `rb` rumble drum, and 303 era; three synth pop kits: gated 80s with gated-reverb snare and big toms, electro-pop with a tambourine, and minimal wave; and two synthwave kits: `neon`, Linn-style with a huge gated snare and clap, gated toms, tambourine and syndrum, and `nightdrive`, 808-style with a booming kick, cowbell and a snare in a gated room). You can add or remove drums, and ▶ Groove
     plays a two-bar beat with the kit. Kits from the first version are converted automatically.
   - **Saved like the tidal-drum-machines kits**: each drum is its own sound named kit + drum, so a kit called `mykit`
     gives `s "mykitbd"`, `s "mykitsd"`, `s "mykithh"`, … Each drum can have several **versions** (slightly different
@@ -129,9 +132,11 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     **slide**. Click to place a note (again for a rest), drag to paint, right-click for a rest.
   - *Random* (`R`) writes a new line in the chosen scale (minor, phrygian, dorian, minor pentatonic, major, chromatic),
     *Mutate* (`M`) changes a few steps; shift, transpose, clear and copy-to-next-slot help build variations.
-  - The voice: saw or square into a driven, resonant 4-pole low-pass (cutoff, resonance, env mod, decay, accent), slide
-    time, gate length and swing, then drive, a tempo-synced delay and reverb. Nine acid and five synth pop sounds
-    to start from (they keep your patterns), plus seven acid demo patterns and seven synth pop patterns (octave basses,
+  - The voice: saw or square (with **pulse width**) plus an optional **sub** an octave down and a **detuned** second
+    oscillator, into a driven, resonant 4-pole low-pass (cutoff, resonance, env mod, decay, accent, **key tracking**),
+    slide time, gate length and swing, then drive, a tempo-synced delay, reverb, **chorus** and **tape** (their sweeps
+    fit the loop, so it stays seamless). Nine acid, five synth pop and five synthwave sounds (chorused and detuned
+    basses with a sub, a narrow pulse bass, echoing arps) to start from (they keep your patterns), plus seven acid demo patterns and seven synth pop patterns (octave basses,
     a two-bar chord bass, arpeggios). Space plays the pattern as a loop with a moving playhead.
   - **Saved as loops**: every slot up to the last one with notes becomes one seamless loop (the delay and reverb tails
     wrap around) in one sound, so `s "acidloop" # n 0` is pattern A, `n 1` pattern B, … Play them in time with
@@ -146,8 +151,9 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
   - Global brightness (scales every modulator), key rate (higher notes decay faster), a pitch envelope (kicks, brass
     blips), an LFO with vibrato and tremolo, and the same effects as Tidepool. Rendered 2× oversampled, so bright
     sounds don't alias.
-  - 23 presets in keys & mallets, bass, brass & leads, pads & bells, percussion and synth pop (sound names start with
-    `fm`: `fmepiano`, `fmsolid`, `fmbell`, `fmpopep`, …). Saved like Tidepool: one sample per note, `n` picks the octave.
+  - 28 presets in keys & mallets, bass, brass & leads, pads & bells, percussion, synth pop and synthwave (a chorused
+    ballad EP, sunset bells, an FM sax, a night bass and a tape-worn glass pad; sound names start with `fm`: `fmepiano`,
+    `fmsolid`, `fmbell`, `fmpopep`, `fmwaveep`, `fmsax`, …). Its effects have the same chorus rate/depth and tape. Saved like Tidepool: one sample per note, `n` picks the octave.
 - **Sequencers** (🎹 Sequencer in Tidepool and Tidepool FM, 🥁 Beat sequencer in Tidepool Drums): a separate window to
   try out melodies and beats with the sound you are designing, and get them as Tidal code.
   - A **piano roll** (click to add a note and drag its length, drag to move, right-click deletes; key and scale are
@@ -200,15 +206,17 @@ It runs Tidal code the same way the VS Code extension does and adds Strudel-styl
     ratings, with a live loss chart) and *Versions* (every run is kept; switch back any time).
   - Data and models live in `%LOCALAPPDATA%\TidalStudio\ml`. Command line: `TidalStudio.exe --ml roundtrip|generate|dataset …`.
 - **Render all factory presets** (Synth ▸ Render all factory presets to samples…) saves every preset of the four
-  synths as samples in one go (about 100 sounds, ~750 WAVs, ~220 MB), plus `mykit`, `acidloop` and `popline` that
+  synths as samples in one go (about 125 sounds, ~900 WAVs), plus `mykit`, `acidloop` and `popline` that
   the example scripts use, and loads them into SuperDirt. Sounds that already have samples are left alone. Acid box
   sounds get the names `acidclassic`, `acidslow`, `acidscreamer`, … and the synth pop sequences `seqoctbass`,
-  `seqeighths`, … (118 bpm). From the command line: `TidalStudio.exe --render-presets <samples folder> [--replace]`.
+  `seqeighths`, … and the synthwave ones `seqnight`, `seqneonarp`, … (118 bpm). From the command line: `TidalStudio.exe --render-presets <samples folder> [--replace]`.
 - **Example scripts** (Synth ▸ Example scripts, or the 📄 button in each synth window) open in a new tab and show
   how to play what each synth makes: Tidepool samples (`n` for the octave, `note` for pitch, chords, arpeggios, monophonic
   basses with `cut`), Tidepool Drums kits (per-drum sounds, versions, the combined kit, fills, groove) and Tidepool Acid
   loops (`loopAt`/`chop`, switching patterns, `splice`), a synth pop sketch using the first three, and Tidepool FM
-  samples (EP chords, octave basses, mallets, FM percussion). They are also in
+  samples (EP chords, octave basses, mallets, FM percussion), and a **synthwave sketch** with the 80s presets of all
+    four (major 7th and add9 chords on the chorus pad, gated drums, octave bass, poly brass, a sax solo, EP and bells,
+    the Acid loops). They are also in
   [examples/](examples/). The self-test runs every block of them in Tidal.
 - **SuperDirt starts automatically**: at launch and whenever you run code, TidalStudio checks that SuperDirt answers
   (the same handshake Tidal uses) and starts SuperCollider + SuperDirt if it doesn't. The status bar shows

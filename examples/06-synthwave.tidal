@@ -1,0 +1,71 @@
+-- ============================================================================
+-- A synthwave sketch: the 80s retro presets of all four Tidepool synths
+-- ============================================================================
+-- Make the sounds first: Synth ▸ Render all presets (or save each preset from its window).
+--   Tidepool (Synthwave):  wavepad wavesunset wavestrings wavebrass wavesax wavelead
+--                          wavebass wavedrive wavekeys wavearp waveglass
+--   Tidepool FM:           fmwaveep fmwavebell fmsax fmwavebass fmwavepad
+--   Tidepool Drums:        neon (gated, Linn-style: neonbd neonsd neoncp neonhh neonoh neonlt …)
+--                          nightdrive (808-style: nightdrivebd nightdrivesd nightdrivecb …)
+--   Tidepool Acid:         seqnight seqdetune seqpulse seqneonarp seqtapearp (loops in C at 118 bpm)
+-- Every Tidepool and FM sample is one note, rendered on c (c3, c4, c5 …): n picks the octave,
+-- note plays any note or chord from it — so the major 7th and add9 chords are just note names.
+-- Run a block with Ctrl+Enter, one after another, to build the track up.
+-- The progression (one bar each): F major 7, G add9, E minor 7, A minor 7.
+
+setcps (100/60/4)
+
+-- Drums: four on the floor, the big gated snare on 2 and 4, eighth hats, a fill every 4th bar
+do
+  d1 $ s "neonbd*4"
+  d2 $ s "~ neonsd ~ neonsd" # n "<0 1>"
+  d3 $ s "neonhh*8" # n (irand 4) # gain "[0.8 1]*4" # cut 1
+  d4 $ every 4 (const $ s "~ ~ ~ [neonht neonmt neonlt neonlt]") $ s "~"
+
+-- Pad: the progression, held for the whole bar (n 1 = the c4 sample)
+d5 $ note "<f'maj7 g'add9 e'min7 a4'min7>" # s "wavepad" # n 1 # legato 1 # gain 0.85
+
+-- Bass: driving octave eighths on the root of each chord (n 1 = the c2 sample)
+d6 $ note ("<f g e a4>" + "[0 12]*4") # s "wavedrive" # n 1 # legato 0.9
+
+-- Brass: polysynth stabs on the off-beats, every other bar
+d7 $ every 2 (const silence) $ struct "~ t ~ [~ t]" $ note "<f'maj7 g'add9 e'min7 a4'min7>"
+   # s "wavebrass" # n 1 # legato 0.6 # gain 0.8
+
+-- Arpeggio: the chord spread over eight notes, played up (one bar) then up and down (the next), with the
+-- preset's ping-pong echo
+d8 $ arp "<up updown>" $ note "<f'maj7'8 g'add9'8 e'min7'8 a4'min7'8>"
+   # s "wavearp" # n 1 # legato 1 # gain 0.7 # pan (slow 2 sine)
+
+-- The sax solo (a reed-like Tidepool lead; fmsax is the FM version): a two-bar phrase in sixteenths
+d9 $ slow 2 $ note "a@3 c6 b@2 a g e@4 ~@4 g a@2 e@6 ~@7"
+   # s "wavesax" # n 1 # legato 1 # room 0.3 # size 0.8
+
+-- … or a soaring lead an octave up, with its long dotted echo
+d9 $ slow 2 $ note "e6@4 d6@2 c6@2 b@4 c6 b g@2 a@8 ~@8" # s "wavelead" # n 1 # legato 1
+
+-- Keys: the chorus electric piano in a gentle rhythm, and bells on top
+do
+  d10 $ struct "t ~ ~ t ~ t ~ ~" $ note "<f'maj7 g'add9 e'min7 a4'min7>" # s "fmwaveep" # n 1 # legato 2 # gain 0.8
+  d11 $ slow 2 $ note "c6 ~ ~ a ~ ~ e6 ~ ~ ~ g ~ ~ ~ ~ ~" # s "fmwavebell" # n 1 # gain 0.75
+
+-- A slow intro: the swelling pad, the tape-worn keys and nothing else
+do
+  d5 $ note "<f'maj7 g'add9 e'min7 a4'min7>" # s "wavesunset" # n 1 # legato 1
+  d10 $ note "<[f'maj7 ~ f'maj7@2] [g'add9 ~ g'add9@2]>" # s "wavekeys" # n 1 # legato 1
+
+-- The 808 kit instead: boomy kick, snappy snare in a gated room, the cowbell
+do
+  d1 $ s "nightdrivebd ~ ~ nightdrivebd ~ ~ nightdrivebd ~"
+  d2 $ s "~ nightdrivesd ~ [nightdrivesd nightdrivecp]"
+  d3 $ s "nightdrivehh*16" # gain (range 0.6 0.85 $ fast 4 sine)
+  d4 $ s "~ ~ ~ ~ ~ ~ nightdrivecb ~" # gain 0.7
+
+-- Tidepool Acid's loops (rendered at 118 bpm, in C): set the tempo to match, then
+-- pattern C (n 2) is the two-bar octave bass over C, A♭, B♭, G; pattern D (n 3) an arpeggio
+do
+  setcps (118/60/4)
+  d6 $ loopAt 2 $ chop 32 $ s "seqnight" # n 2
+  d8 $ loopAt 1 $ chop 16 $ s "seqneonarp" # n 3 # gain 0.75
+
+hush

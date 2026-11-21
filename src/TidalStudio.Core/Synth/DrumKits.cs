@@ -17,6 +17,8 @@ public static class DrumKits
         ("Synth pop · gated 80s", GatedEighties),
         ("Synth pop · electro-pop", ElectroPop),
         ("Synth pop · minimal wave", MinimalWave),
+        ("Synthwave · Linn gated", NeonGated),
+        ("Synthwave · 808 night drive", NightDrive),
     };
 
     public static DrumKit Create(string name) =>
@@ -310,6 +312,65 @@ public static class DrumKits
         d["oh"].Metal.Envelope.Decay = 0.35;
         d["cr"].Metal.Envelope.Decay = 2; d["cr"].Room = 0.3;
         var perc = d["perc"]; perc.Osc1.PitchDrop = 24; perc.Osc1.PitchTime = 0.2; perc.Room = 0.4; // syndrum
+    });
+
+    /// <summary>
+    /// Synthwave, in the manner of the early-80s sampled drum machines: a tight punchy kick, a huge snare and clap in a big
+    /// room that is cut off short (gated reverb), crisp hats, gated toms for fills, a tambourine and a syndrum.
+    /// </summary>
+    private static DrumKit NeonGated() => Standard("neon", d =>
+    {
+        var bd = d["bd"];
+        bd.Osc1.Frequency = 55; bd.Osc1.Envelope.Decay = 0.45; bd.Osc1.PitchDrop = 18; bd.Osc1.PitchTime = 0.04;
+        bd.Click.Level = 0.45; bd.Drive = 0.2; bd.Room = 0.12; bd.RoomSize = 0.5;
+        var sd = d["sd"];
+        sd.Noise.Level = 0.85; sd.Noise.Cutoff = 1800; sd.Noise.Envelope.Decay = 0.26;
+        sd.Click = new() { Enabled = true, Level = 0.3, Length = 0.003, Tone = 4000 };
+        sd.Room = 0.8; sd.RoomSize = 0.95; sd.MaxLength = 0.42; sd.Drive = 0.15; sd.Variations = 2; // the gate
+        var cp = d["cp"]; cp.Room = 0.7; cp.RoomSize = 0.92; cp.MaxLength = 0.4; cp.Noise.Cutoff = 1400; cp.Variations = 2;
+        foreach (var key in new[] { "hh", "oh" }) { d[key].Metal.Cutoff = 11000; d[key].Noise.Level = 0.35; }
+        d["hh"].Metal.Envelope.Decay = 0.045;
+        d["oh"].Metal.Envelope.Decay = 0.3;
+        foreach (var (key, tune) in new[] { ("lt", -6.0), ("mt", -1.0), ("ht", 4.0) })
+        {
+            var t = d[key];
+            t.Tune = tune;
+            t.Osc1.PitchDrop = 7; t.Osc1.PitchTime = 0.2; t.Osc1.Envelope.Decay = 0.55;
+            t.Noise.Level = 0.25; t.Noise.Envelope.Decay = 0.08;
+            t.Room = 0.65; t.RoomSize = 0.9; t.MaxLength = 0.6;
+        }
+        d["cr"].Metal.Envelope.Decay = 2.2; d["cr"].Room = 0.35;
+        // Shaker → tambourine.
+        var sh = d["sh"];
+        sh.Metal = new() { Enabled = true, Tune = 12, Cutoff = 9500, Resonance = 0.35, Level = 0.5, Envelope = Env(0.14, 0.9, attack: 0.004) };
+        sh.Noise.Envelope.Decay = 0.13; sh.Room = 0.2;
+        var perc = d["perc"]; perc.Osc1.PitchDrop = 20; perc.Osc1.PitchTime = 0.25; perc.Osc1.Envelope.Decay = 0.4; perc.Room = 0.5; // syndrum
+    });
+
+    /// <summary>
+    /// Synthwave on an 808-style machine: a long, booming kick, a snappy snare and clap in a gated room, ticking hats,
+    /// the two-tone cowbell and round toms.
+    /// </summary>
+    private static DrumKit NightDrive() => Standard("nightdrive", d =>
+    {
+        var bd = d["bd"];
+        bd.Osc1.Frequency = 47; bd.Osc1.Envelope.Decay = 1.4; bd.Osc1.PitchDrop = 10; bd.Osc1.PitchTime = 0.05;
+        bd.Click.Level = 0.12; bd.Drive = 0.08;
+        var sd = d["sd"];
+        sd.Tune = 2; sd.Osc2.Level = 0.5; sd.Noise.Level = 0.6; sd.Noise.Cutoff = 2500; sd.Noise.Envelope.Decay = 0.18;
+        sd.Room = 0.5; sd.RoomSize = 0.85; sd.MaxLength = 0.5;
+        var cp = d["cp"]; cp.Room = 0.45; cp.RoomSize = 0.85; cp.MaxLength = 0.45;
+        d["hh"].Metal.Cutoff = 9500; d["hh"].Metal.Envelope.Decay = 0.05;
+        d["oh"].Metal.Envelope.Decay = 0.4;
+        d["cb"].Metal.Envelope.Decay = 0.25; d["cb"].Metal.Cutoff = 1500;
+        foreach (var (key, tune) in new[] { ("lt", -5.0), ("mt", 0.0), ("ht", 5.0) })
+        {
+            var t = d[key];
+            t.Tune = tune;
+            t.Osc1.PitchDrop = 4; t.Osc1.PitchTime = 0.15; t.Osc1.Envelope.Decay = 0.5;
+            t.Noise.Level = 0.05;
+            t.Room = 0.3;
+        }
     });
 
     /// <summary>Tight, dry and clicky: a short punchy kick, snappy snare with an FM ring, bright claps and a tambourine-like shaker.</summary>

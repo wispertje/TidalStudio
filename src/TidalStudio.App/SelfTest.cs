@@ -562,6 +562,7 @@ public partial class MainWindow
                     return (w, open(w));
                 });
                 await Task.Delay(1500);
+                await Dispatcher.UIThread.InvokeAsync(() => Render(owner, Path.Combine(outDir, $"window-{name}.png")));
                 await Dispatcher.UIThread.InvokeAsync(() => Render(seq, Path.Combine(outDir, $"seq-{name}.png")));
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 var loop = await Dispatcher.UIThread.InvokeAsync(seq.RenderLoopAsync);
@@ -574,6 +575,17 @@ public partial class MainWindow
                 log.Add($"{name} random code:\n{await Dispatcher.UIThread.InvokeAsync(() => seq.CodeText)}");
                 await Dispatcher.UIThread.InvokeAsync(owner.Close);
             }
+
+            // Tidepool Acid (its own step editor, no sequencer window).
+            var acid = await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var w = new Synth.AcidWindow(_services, () => { }, (_, t) => log.Add("[acid] " + t), noRestart);
+                w.Show();
+                return w;
+            });
+            await Task.Delay(1500);
+            await Dispatcher.UIThread.InvokeAsync(() => Render(acid, Path.Combine(outDir, "window-acid.png")));
+            await Dispatcher.UIThread.InvokeAsync(acid.Close);
 
             // Two sequencers open together share one tempo.
             var (synthOwner, drumOwner, synthSeq, drumSeq) = await Dispatcher.UIThread.InvokeAsync(() =>

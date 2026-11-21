@@ -33,8 +33,11 @@ public static class AcidEngine
             DelayFeedback = box.Fx.DelayFeedback,
             ReverbMix = box.Fx.ReverbMix,
             ReverbSize = box.Fx.ReverbSize,
+            ChorusMix = Math.Clamp(box.Fx.ChorusMix, 0, 1),
+            ChorusRate = box.Fx.ChorusRate,
+            Tape = Math.Clamp(box.Fx.Tape, 0, 1),
         };
-        SynthEngine.ApplyFx(fx, sr, left, right);
+        SynthEngine.ApplyFx(fx, sr, left, right, loopSeconds);
 
         int start = preroll * loop;
         var l = left.AsSpan(start, repeats * loop).ToArray();
@@ -96,6 +99,13 @@ public static class AcidEngine
         double driveGain = 1 + drive * 9, driveNorm = 1 / Math.Tanh(driveGain);
         double dcCoef = 1 - 2 * Math.PI * 20 / sr;
         int os = sr * 2;
+        // The extra controls; each one at its default leaves the classic voice exactly as it was.
+        double width = Math.Clamp(v.PulseWidth, 0.05, 0.95);
+        double subLevel = Math.Clamp(v.Sub, 0, 1);
+        double detune = Math.Clamp(v.Detune, 0, 1);
+        double detuneRatio = Math.Pow(2, detune * 30 / 1200);
+        double keyTrack = Math.Clamp(v.KeyTrack, 0, 1);
+        double phase2 = 0, subPhase = 0;
 
         int nextStep = 0;      // step index (absolute over all passes) that starts next
         int nextStart = 0;
@@ -118,7 +128,7 @@ public static class AcidEngine
                     {
                         // A note on the loop's first step starts the oscillator from zero, so every pass (and the
                         // saved loop played over and over) begins identically.
-                        if (i == 0) phase = 0;
+                        if (i == 0) phase = phase2 = subPhase = 0;
                         midi = targetMidi;
                         gate = true;
                         filterEnv = 1;
@@ -148,9 +158,22 @@ public static class AcidEngine
             double dt = freq / sr;
             phase += dt;
             if (phase >= 1) phase -= 1;
-            double osc = v.Wave == AcidWave.Saw
-                ? 2 * phase - 1 - PolyBlep(phase, dt)
-                : (phase < 0.5 ? 1 : -1) + PolyBlep(phase, dt) - PolyBlep((phase + 0.5) % 1, dt);
+            double osc = Wave(v.Wave, phase, dt, width);
+            if (detune > 0)
+            {
+                // A second oscillator a little sharper: the two beat slowly against each other.
+                double dt2 = dt * detuneRatio;
+                phase2 += dt2;
+                if (phase2 >= 1) phase2 -= 1;
+                osc = (osc + Wave(v.Wave, phase2, dt2, width)) * 0.6;
+            }
+            if (subLevel > 0)
+            {
+                double dtSub = dt / 2;
+                subPhase += dtSub;
+                if (subPhase >= 1) subPhase -= 1;
+                osc += subLevel * Wave(AcidWave.Square, subPhase, dtSub, 0.5);
+            }
 
             // --- envelopes
             amp += ((gate ? 1 : 0) - amp) * (gate ? ampAttack : ampRelease);
@@ -160,6 +183,7 @@ public static class AcidEngine
 
             double accentNow = noteAccent ? accentAmount : 0;
             double octaves = logCutoff + envOctaves * filterEnv * (1 + accentNow * 0.5) + accentAmount * 2.6 * accentCv;
+            if (keyTrack > 0) octaves += keyTrack * (midi - box.Root) / 12;
             double fc = Math.Min(Math.Pow(2, octaves), os * 0.2);
             double g = 1 - Math.Exp(-2 * Math.PI * fc / os);
 
@@ -187,6 +211,11 @@ public static class AcidEngine
         }
         return output;
     }
+
+    /// <summary>One band-limited oscillator sample: a saw, or a pulse <paramref name="width"/> of the cycle high (0.5 = square).</summary>
+    private static double Wave(AcidWave wave, double phase, double dt, double width) => wave == AcidWave.Saw
+        ? 2 * phase - 1 - PolyBlep(phase, dt)
+        : (phase < width ? 1 : -1) + PolyBlep(phase, dt) - PolyBlep((phase + (1 - width)) % 1, dt);
 
     private static double PolyBlep(double t, double dt)
     {

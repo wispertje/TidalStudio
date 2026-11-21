@@ -411,12 +411,17 @@ public sealed class SynthWindow : Window
         body.Children.Add(KnobRow(
             K("Drive", 0, 1, 0, () => fx.Drive, v => fx.Drive = v, Percent, accent: FxColor),
             K("Chorus", 0, 1, 0, () => fx.ChorusMix, v => fx.ChorusMix = v, Percent, accent: FxColor),
+            K("Rate", 0.05, 8, 0.6, () => fx.ChorusRate, v => fx.ChorusRate = v, RateText, log: true, accent: FxColor),
+            K("Depth", 0, 10, 4, () => fx.ChorusDepth, v => fx.ChorusDepth = v, Millis, accent: FxColor),
             K("Delay", 0, 1, 0, () => fx.DelayMix, v => fx.DelayMix = v, Percent, accent: FxColor),
             K("Time", 0.02, 1.5, 0.25, () => fx.DelayTime, v => fx.DelayTime = v, Seconds, log: true, accent: FxColor),
             K("Feedback", 0, 0.95, 0.35, () => fx.DelayFeedback, v => fx.DelayFeedback = v, Percent, accent: FxColor),
             K("Reverb", 0, 1, 0, () => fx.ReverbMix, v => fx.ReverbMix = v, Percent, accent: FxColor),
-            K("Size", 0, 1, 0.7, () => fx.ReverbSize, v => fx.ReverbSize = v, Percent, accent: FxColor)));
-        return Panel("EFFECTS", body, FxColor);
+            K("Size", 0, 1, 0.7, () => fx.ReverbSize, v => fx.ReverbSize = v, Percent, accent: FxColor),
+            K("Tape", 0, 1, 0, () => fx.Tape, v => fx.Tape = v, Percent, accent: FxColor)));
+        var panel = Panel("EFFECTS", body, FxColor);
+        ToolTip.SetTip(panel, FxTip);
+        return panel;
     }
 
     private Control OutputSection()
@@ -451,6 +456,13 @@ public sealed class SynthWindow : Window
     // ------------------------------------------------------------------ control helpers
 
     internal static string Percent(double v) => $"{v * 100:0}%";
+    internal static string RateText(double v) => v < 1 ? $"{v:0.00} Hz" : $"{v:0.0} Hz";
+    internal static string Millis(double v) => $"{v:0.0} ms";
+
+    /// <summary>Tooltip of the effects panels of Tidepool and Tidepool FM.</summary>
+    internal const string FxTip =
+        "Drive, then chorus (Rate and Depth: slow and deep for the wide 80s ensemble sound), ping-pong delay, reverb, " +
+        "and Tape last: wow and flutter (a slow pitch drift), saturation and a softer top end.";
     internal static string Hz(double v) => v >= 1000 ? $"{v / 1000:0.0} kHz" : $"{v:0} Hz";
     internal static string Seconds(double v) => v < 1 ? $"{v * 1000:0} ms" : $"{v:0.00} s";
     internal static string PanText(double v) => Math.Abs(v) < 0.01 ? "C" : v < 0 ? $"L{-v * 100:0}" : $"R{v * 100:0}";

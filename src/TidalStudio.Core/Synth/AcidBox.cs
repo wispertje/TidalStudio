@@ -136,6 +136,14 @@ public sealed class AcidVoice
     public double Drive { get; set; } = 0.15;
     /// <summary>Output level after normalising, 0..1.</summary>
     public double Level { get; set; } = 0.9;
+    /// <summary>Square wave only: the share of each cycle that is high, 0.05..0.95 (0.5 = square; narrow = thin, nasal).</summary>
+    public double PulseWidth { get; set; } = 0.5;
+    /// <summary>A square wave an octave below, mixed in before the filter, 0..1: weight under basses.</summary>
+    public double Sub { get; set; }
+    /// <summary>A second oscillator, detuned up to 30 cents, 0..1: a fatter, slowly beating sound (0 = one oscillator).</summary>
+    public double Detune { get; set; }
+    /// <summary>How much the filter opens for higher notes, 0..1 (0 = the same cutoff for every note, like the classic box).</summary>
+    public double KeyTrack { get; set; }
 
     public AcidVoice Clone() => (AcidVoice)MemberwiseClone();
 }
@@ -149,6 +157,11 @@ public sealed class AcidFx
     public double DelayFeedback { get; set; } = 0.4;
     public double ReverbMix { get; set; }
     public double ReverbSize { get; set; } = 0.5;
+    /// <summary>Stereo chorus, 0..1 (its sweep is tuned to whole cycles per loop, so loops stay seamless).</summary>
+    public double ChorusMix { get; set; }
+    public double ChorusRate { get; set; } = 0.6;
+    /// <summary>Tape wow, flutter and warmth, 0..1.</summary>
+    public double Tape { get; set; }
 
     public AcidFx Clone() => (AcidFx)MemberwiseClone();
 }

@@ -395,8 +395,17 @@ public sealed class AcidWindow : Window, ITempoFollower
             K("Env mod", 0, 1, 0.55, () => v.EnvMod, x => v.EnvMod = x, SynthWindow.Percent, accent: VoiceColor),
             K("Decay", 0.03, 2.5, 0.4, () => v.Decay, x => v.Decay = x, SynthWindow.Seconds, curve: 2.2, accent: VoiceColor),
             K("Accent", 0, 1, 0.6, () => v.Accent, x => v.Accent = x, SynthWindow.Percent, accent: AcidGridView.AccentColor)));
+        var width = K("Width", 0.05, 0.95, 0.5, () => v.PulseWidth, x => v.PulseWidth = x, SynthWindow.Percent, accent: VoiceColor);
+        ToolTip.SetTip(width, "Pulse width (square wave): 50% is a square, narrow pulses sound thinner and more nasal.");
+        var sub = K("Sub", 0, 1, 0, () => v.Sub, x => v.Sub = x, SynthWindow.Percent, accent: VoiceColor);
+        ToolTip.SetTip(sub, "A square wave an octave lower, under the oscillator: weight for basses.");
+        var detune = K("Detune", 0, 1, 0, () => v.Detune, x => v.Detune = x, x => $"{x * 30:0} ct", accent: VoiceColor);
+        ToolTip.SetTip(detune, "Adds a second oscillator, up to 30 cents sharp: a fatter sound that beats slowly.");
+        var keyTrack = K("Key trk", 0, 1, 0, () => v.KeyTrack, x => v.KeyTrack = x, SynthWindow.Percent, accent: VoiceColor);
+        ToolTip.SetTip(keyTrack, "How much the filter opens for higher notes, so arpeggios stay bright (0 = the classic, fixed cutoff).");
+        voiceBody.Children.Add(SynthWindow.KnobRow(width, sub, detune, keyTrack));
         var voice = SynthWindow.Panel("VOICE · FILTER", voiceBody, VoiceColor);
-        ToolTip.SetTip(voice, "One oscillator into a resonant 4-pole low-pass. Every note opens the filter by Env mod and it closes over Decay; accented notes close fast and jump out.");
+        ToolTip.SetTip(voice, "One oscillator (plus an optional sub and detuned second oscillator) into a resonant 4-pole low-pass. Every note opens the filter by Env mod and it closes over Decay; accented notes close fast and jump out.");
 
         var notes = SynthWindow.Panel("NOTES · GROOVE", SynthWindow.KnobRow(
             K("Slide", 0.01, 0.3, 0.06, () => v.SlideTime, x => v.SlideTime = x, SynthWindow.Seconds, curve: 1.6, accent: NotesColor),
@@ -404,14 +413,18 @@ public sealed class AcidWindow : Window, ITempoFollower
             K("Swing", 0, 0.5, 0, () => _box.Swing, x => _box.Swing = x, x => $"{x * 100:0}%", accent: NotesColor)), NotesColor);
         ToolTip.SetTip(notes, "Slide: glide time between slid notes. Gate: how long notes hold within their step (short = staccato). Swing: delays every second sixteenth.");
 
-        var fxPanel = SynthWindow.Panel("DRIVE · DELAY · REVERB", SynthWindow.KnobRow(
+        var fxPanel = SynthWindow.Panel("DRIVE · DELAY · REVERB · CHORUS · TAPE",SynthWindow.KnobRow(
             K("Drive", 0, 1, 0.15, () => v.Drive, x => v.Drive = x, SynthWindow.Percent, accent: FxColor),
             K("Delay", 0, 0.8, 0, () => fx.DelayMix, x => fx.DelayMix = x, SynthWindow.Percent, accent: FxColor),
             K("Time", 1, 8, 3, () => fx.DelaySteps, x => fx.DelaySteps = x, DelayText, step: 1, accent: FxColor),
             K("Feedback", 0, 0.9, 0.4, () => fx.DelayFeedback, x => fx.DelayFeedback = x, SynthWindow.Percent, accent: FxColor),
             K("Reverb", 0, 0.8, 0, () => fx.ReverbMix, x => fx.ReverbMix = x, SynthWindow.Percent, accent: FxColor),
-            K("Size", 0, 1, 0.5, () => fx.ReverbSize, x => fx.ReverbSize = x, SynthWindow.Percent, accent: FxColor)), FxColor);
-        ToolTip.SetTip(fxPanel, "The delay follows the tempo (Time in sixteenths). Delay and reverb tails wrap around, so the saved loop is seamless.");
+            K("Size", 0, 1, 0.5, () => fx.ReverbSize, x => fx.ReverbSize = x, SynthWindow.Percent, accent: FxColor),
+            K("Chorus", 0, 1, 0, () => fx.ChorusMix, x => fx.ChorusMix = x, SynthWindow.Percent, accent: FxColor),
+            K("Rate", 0.05, 8, 0.6, () => fx.ChorusRate, x => fx.ChorusRate = x, SynthWindow.RateText, log: true, accent: FxColor),
+            K("Tape", 0, 1, 0, () => fx.Tape, x => fx.Tape = x, SynthWindow.Percent, accent: FxColor)), FxColor);
+        ToolTip.SetTip(fxPanel, "The delay follows the tempo (Time in sixteenths). Chorus widens and thickens; Tape adds wow, flutter and warmth. " +
+            "Tails wrap around and the chorus and tape sweeps fit the loop, so the saved loop is seamless.");
 
         var normalize = new CheckBox { Content = "Normalise", IsChecked = _box.Normalize, FontSize = 12 };
         normalize.IsCheckedChanged += (_, _) => { _box.Normalize = normalize.IsChecked == true; Commit(); };
@@ -585,6 +598,8 @@ public sealed class AcidWindow : Window, ITempoFollower
         items.AddRange(AcidLines.Sounds.Select(s => s.Name));
         items.Add("— synth pop sounds (keep patterns) —");
         items.AddRange(AcidLines.PopSounds.Select(s => s.Name));
+        items.Add("— synthwave sounds (keep patterns) —");
+        items.AddRange(AcidLines.SynthwaveSounds.Select(s => s.Name));
         if (Directory.Exists(UserBoxFolder))
         {
             var mine = Directory.EnumerateFiles(UserBoxFolder, "*.json").Select(Path.GetFileNameWithoutExtension).OfType<string>().OrderBy(n => n).ToList();

@@ -79,6 +79,12 @@ public sealed class FxSettings
     /// <summary>Saturation, 0..1.</summary>
     public double Drive { get; set; }
     public double ChorusMix { get; set; }
+    /// <summary>Speed of the chorus sweep, Hz (slow and wide like the 80s ensemble choruses, or fast for vibrato-like shimmer).</summary>
+    public double ChorusRate { get; set; } = 0.6;
+    /// <summary>How far the chorus sweeps, ms (0..10).</summary>
+    public double ChorusDepth { get; set; } = 4;
+    /// <summary>Tape, 0..1: wow and flutter (a slow, slightly seasick pitch drift), saturation and a softer top end.</summary>
+    public double Tape { get; set; }
     public double DelayMix { get; set; }
     public double DelayTime { get; set; } = 0.25;
     public double DelayFeedback { get; set; } = 0.35;
